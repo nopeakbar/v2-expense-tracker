@@ -1,10 +1,10 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const { JWT } = require('google-auth-library');
-const Groq = require('groq-sdk');
+import 'dotenv/config';
+import TelegramBot from 'node-telegram-bot-api';
+import express from 'express';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { JWT } from 'google-auth-library';
+import Groq from 'groq-sdk';
 
 const app = express();
 app.use(express.json());
@@ -584,5 +584,4 @@ app.post('/api/simpan', async (req, res) => {
   }
 });
 
-// PENTING: Ganti app.listen dengan module.exports untuk Vercel
-module.exports = app;
+export default app;
