@@ -13,7 +13,6 @@ const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const sheetId = process.env.SPREADSHEET_ID;
 
-// PENTING: Hapus polling: true untuk Vercel
 const bot = new TelegramBot(botToken); 
 const genAI = new GoogleGenerativeAI(geminiApiKey);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -25,11 +24,10 @@ const serviceAccountAuth = new JWT({
 });
 const doc = new GoogleSpreadsheet(sheetId, serviceAccountAuth);
 
-// Peringatan Vercel: State ini mungkin reset jika serverless function "cold start"
 let userSessions = {}; 
 
 // =====================================================================
-// PROMPT & HELPER FUNCTIONS (Sama seperti kodemu sebelumnya)
+// PROMPT & HELPER FUNCTIONS
 // =====================================================================
 const promptDeteksiJenis = `Kamu adalah AI klasifikasi transaksi keuangan.
 Dari kalimat user, tentukan apakah ini "Pemasukan" atau "Pengeluaran".
@@ -157,7 +155,7 @@ const ekstrakDetailTransaksiGroq = async (jenisTransaksi, text) => {
 
 const simpanKeSheets = async (chatId, data) => {
   try {
-    bot.sendMessage(chatId, '⏳ Sedang menyimpan ke Google Sheets...');
+    await bot.sendMessage(chatId, '⏳ Sedang menyimpan ke Google Sheets...');
     await doc.loadInfo();
     const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
     let pesanSukses = '';
@@ -172,22 +170,22 @@ const simpanKeSheets = async (chatId, data) => {
       pesanSukses = `✅ **Sukses! Pengeluaran berhasil dicatat.**\n\n📅 Waktu: ${timestamp}\n☕ Item: ${formatTeks(data.item)}\n📂 Kategori: ${formatTeks(data.kategori)}\n💰 Nominal: Rp ${(data.nominal || 0).toLocaleString('id-ID')}\n📍 Tempat: ${formatTeks(data.tempat)}\n🎯 Tujuan: ${formatTeks(data.tujuan)}\n👥 Partisipan: ${formatTeks(data.partisipan)}\n💳 Metode: ${formatTeks(data.metode_bayar)}\n⭐ Rating: ${formatTeks(data.rating)}`;
     }
 
-    bot.sendMessage(chatId, pesanSukses, { parse_mode: "Markdown" });
+    await bot.sendMessage(chatId, pesanSukses, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Gagal nyimpen ke Sheets:", error);
-    bot.sendMessage(chatId, '❌ Waduh, gagal nyimpen ke Google Sheets. Coba cek log terminal ya.');
+    await bot.sendMessage(chatId, '❌ Waduh, gagal nyimpen ke Google Sheets. Coba cek log terminal ya.');
   }
 };
 
 const updateKeSheets = async (chatId, data, targetSheetIndex = 0) => {
   try {
-    bot.sendMessage(chatId, '⏳ Sedang mengupdate baris terakhir di Google Sheets...');
+    await bot.sendMessage(chatId, '⏳ Sedang mengupdate baris terakhir di Google Sheets...');
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[targetSheetIndex];
     const rows = await sheet.getRows();
 
     if (rows.length === 0) {
-      bot.sendMessage(chatId, 'Gagal update: Data masih kosong.');
+      await bot.sendMessage(chatId, 'Gagal update: Data masih kosong.');
       return;
     }
 
@@ -220,10 +218,10 @@ const updateKeSheets = async (chatId, data, targetSheetIndex = 0) => {
     }
 
     await lastRow.save();
-    bot.sendMessage(chatId, pesanEdit, { parse_mode: "Markdown" });
+    await bot.sendMessage(chatId, pesanEdit, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Gagal update ke Sheets:", error);
-    bot.sendMessage(chatId, '❌ Waduh, gagal edit data di Google Sheets. Pastikan nama Header di sheets udah sesuai.');
+    await bot.sendMessage(chatId, '❌ Waduh, gagal edit data di Google Sheets. Pastikan nama Header di sheets udah sesuai.');
   }
 };
 
@@ -233,89 +231,92 @@ const isKosong = (val) => {
   return str === '' || str === 'null' || str === 'tidak disebutkan' || str === '-';
 };
 
-const cekDataKurang = (chatId, draftData, action = 'create', targetSheetIndex = 0) => {
+const cekDataKurang = async (chatId, draftData, action = 'create', targetSheetIndex = 0) => {
   if (targetSheetIndex === 1) {
     if (isKosong(draftData.sumber_pemasukan)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "sumber_pemasukan", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Eh, **sumber pemasukannya** dari mana nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Eh, **sumber pemasukannya** dari mana nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (!draftData.nominal || draftData.nominal === 0) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "nominal", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Eh, **nominalnya** berapa duit? (Ketik angkanya aja) 💸`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Eh, **nominalnya** berapa duit? (Ketik angkanya aja) 💸`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.kategori)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "kategori", action, targetSheetIndex };
-      bot.sendMessage(chatId, `**Kategorinya** apa nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `**Kategorinya** apa nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     return false;
   } else {
     if (isKosong(draftData.item)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "item", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Eh, **nama barang/jasanya** belum dapet nih. Tadi beli apa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Eh, **nama barang/jasanya** belum dapet nih. Tadi beli apa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (!draftData.nominal || draftData.nominal === 0) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "nominal", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Eh, **harganya** belum dapet nih. Berapa duit tadi? 💸`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Eh, **harganya** belum dapet nih. Berapa duit tadi? 💸`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.kategori)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "kategori", action, targetSheetIndex };
-      bot.sendMessage(chatId, `**Kategorinya** masuk ke mana nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `**Kategorinya** masuk ke mana nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.tempat)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "tempat", action, targetSheetIndex };
-      bot.sendMessage(chatId, `**Tempatnya** di mana nih bos?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `**Tempatnya** di mana nih bos?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.tujuan)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "tujuan", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Eh, **tujuannya** belum disebut nih.\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Eh, **tujuannya** belum disebut nih.\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.partisipan)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "partisipan", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Perginya sama **siapa** nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Perginya sama **siapa** nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.metode_bayar)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "metode_bayar", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Bayarnya pakai **metode** apa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Bayarnya pakai **metode** apa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.rating)) {
       userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "rating", action, targetSheetIndex };
-      bot.sendMessage(chatId, `Terakhir nih, **Rating** berapa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Terakhir nih, **Rating** berapa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     return false;
   }
 };
 
-bot.on('message', async (msg) => {
+// =====================================================================
+// PERUBAHAN UTAMA: Fungsi diganti dari bot.on ke prosesPesan
+// =====================================================================
+const prosesPesan = async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || msg.caption || '';
 
   if (text === '/batal') {
     delete userSessions[chatId];
-    bot.sendMessage(chatId, 'Oke, proses sebelumnya dibatalkan. Ada yang mau dicatat lagi?');
+    await bot.sendMessage(chatId, 'Oke, proses sebelumnya dibatalkan. Ada yang mau dicatat lagi?');
     return;
   }
 
   if (text === '/start') {
     delete userSessions[chatId];
-    bot.sendMessage(chatId, `Halo, Akbar! 👋 Aku bot my keuangan gw anjay.\n\nCommand yang tersedia:\n📝 Langsung ketik pengeluaran/pemasukanmu\n📸 Kirim Foto Struk Belanjaanmu\n↩️ /undo - Hapus data terakhir\n✏️ /edit - Ubah data terakhir\n❌ /batal - Batalkan percakapan bot yang menggantung`);
+    await bot.sendMessage(chatId, `Halo, Akbar! 👋 Aku bot my keuangan gw anjay.\n\nCommand yang tersedia:\n📝 Langsung ketik pengeluaran/pemasukanmu\n📸 Kirim Foto Struk Belanjaanmu\n↩️ /undo - Hapus data terakhir\n✏️ /edit - Ubah data terakhir\n❌ /batal - Batalkan percakapan bot yang menggantung`);
     return;
   }
 
   if (text === '/undo') {
     delete userSessions[chatId];
     try {
-      bot.sendMessage(chatId, '⏳ Sedang mencari data terakhir untuk di-undo...');
+      await bot.sendMessage(chatId, '⏳ Sedang mencari data terakhir untuk di-undo...');
       await doc.loadInfo();
       const sheet0 = doc.sheetsByIndex[0];
       const sheet1 = doc.sheetsByIndex[1];
@@ -329,7 +330,7 @@ bot.on('message', async (msg) => {
       const time1 = lastRow1 ? parseIndoDate(lastRow1.get('Waktu')) : 0;
 
       if (time0 === 0 && time1 === 0) {
-        bot.sendMessage(chatId, 'Pencatatan masih kosong nih, nggak ada yang bisa di-undo.');
+        await bot.sendMessage(chatId, 'Pencatatan masih kosong nih, nggak ada yang bisa di-undo.');
         return;
       }
 
@@ -345,10 +346,10 @@ bot.on('message', async (msg) => {
       }
 
       await lastRowToDelete.delete();
-      bot.sendMessage(chatId, `✅ **Sukses di-undo!** Data "${deletedName}" udah dihapus dari Sheets.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `✅ **Sukses di-undo!** Data "${deletedName}" udah dihapus dari Sheets.`, { parse_mode: "Markdown" });
     } catch (error) {
       console.error("Gagal undo:", error);
-      bot.sendMessage(chatId, '❌ Gagal nge-undo data. Coba cek terminal.');
+      await bot.sendMessage(chatId, '❌ Gagal nge-undo data. Coba cek terminal.');
     }
     return;
   }
@@ -356,7 +357,7 @@ bot.on('message', async (msg) => {
   if (text === '/edit') {
     delete userSessions[chatId];
     try {
-      bot.sendMessage(chatId, '⏳ Sedang mengambil data terakhir kamu...');
+      await bot.sendMessage(chatId, '⏳ Sedang mengambil data terakhir kamu...');
       await doc.loadInfo();
       const sheet0 = doc.sheetsByIndex[0];
       const sheet1 = doc.sheetsByIndex[1];
@@ -370,7 +371,7 @@ bot.on('message', async (msg) => {
       const time1 = lastRow1 ? parseIndoDate(lastRow1.get('Waktu')) : 0;
 
       if (time0 === 0 && time1 === 0) {
-        bot.sendMessage(chatId, 'Belum ada data yang bisa di-edit nih.');
+        await bot.sendMessage(chatId, 'Belum ada data yang bisa di-edit nih.');
         return;
       }
 
@@ -386,10 +387,10 @@ bot.on('message', async (msg) => {
       }
 
       userSessions[chatId] = { mode: 'edit_prompt', targetSheetIndex };
-      bot.sendMessage(chatId, `Data terakhir di Sheets:\n${jenisInfo}\n\nKetik kalimat revisi yang bener buat ngegantiin data ini.\n\nAtau ketik /batal kalau nggak jadi edit.`, { parse_mode: "Markdown" });
+      await bot.sendMessage(chatId, `Data terakhir di Sheets:\n${jenisInfo}\n\nKetik kalimat revisi yang bener buat ngegantiin data ini.\n\nAtau ketik /batal kalau nggak jadi edit.`, { parse_mode: "Markdown" });
     } catch (error) {
       console.error("Gagal ambil data buat edit:", error);
-      bot.sendMessage(chatId, '❌ Gagal narik data terakhir. Coba lagi nanti.');
+      await bot.sendMessage(chatId, '❌ Gagal narik data terakhir. Coba lagi nanti.');
     }
     return;
   }
@@ -398,7 +399,7 @@ bot.on('message', async (msg) => {
     const session = userSessions[chatId];
 
     if (session.mode === 'edit_prompt') {
-      bot.sendMessage(chatId, '⏳ Sebentar, lagi ekstrak editan datanya...');
+      await bot.sendMessage(chatId, '⏳ Sebentar, lagi ekstrak editan datanya...');
       try {
         const targetSheetIndex = session.targetSheetIndex;
         const prompt = targetSheetIndex === 1 ? promptPemasukan : promptPengeluaran;
@@ -412,14 +413,14 @@ bot.on('message', async (msg) => {
         const data = ekstrakJson(response.choices[0]?.message?.content);
         data.jenis_transaksi = targetSheetIndex === 1 ? 'Pemasukan' : 'Pengeluaran';
 
-        const adaYangKurang = cekDataKurang(chatId, data, 'edit', targetSheetIndex);
+        const adaYangKurang = await cekDataKurang(chatId, data, 'edit', targetSheetIndex);
         if (!adaYangKurang) {
           await updateKeSheets(chatId, data, targetSheetIndex);
           delete userSessions[chatId];
         }
       } catch (error) {
         console.error("Error AI saat edit:", error);
-        bot.sendMessage(chatId, '❌ Wah, AI-nya bingung. Coba format kalimat editnya dirapihin dikit ya.');
+        await bot.sendMessage(chatId, '❌ Wah, AI-nya bingung. Coba format kalimat editnya dirapihin dikit ya.');
       }
       return;
     }
@@ -429,7 +430,7 @@ bot.on('message', async (msg) => {
 
       if (text.toLowerCase() === 'x') {
         if (missingField === 'nominal') {
-          bot.sendMessage(chatId, `Waduh, kalau nominal nggak boleh di-skip bos! Ketik angkanya ya 😅`);
+          await bot.sendMessage(chatId, `Waduh, kalau nominal nggak boleh di-skip bos! Ketik angkanya ya 😅`);
           return;
         } else {
           session.draft[missingField] = null;
@@ -440,7 +441,7 @@ bot.on('message', async (msg) => {
           if (nominalValue > 0 && nominalValue < 1000) nominalValue *= 1000;
 
           if (isNaN(nominalValue) || nominalValue === 0) {
-            bot.sendMessage(chatId, `Format angka salah nih. Coba ketik angkanya aja 😅`);
+            await bot.sendMessage(chatId, `Format angka salah nih. Coba ketik angkanya aja 😅`);
             return;
           }
           session.draft[missingField] = nominalValue;
@@ -449,7 +450,7 @@ bot.on('message', async (msg) => {
         }
       }
 
-      const masihAdaYangKurang = cekDataKurang(chatId, session.draft, session.action, session.targetSheetIndex);
+      const masihAdaYangKurang = await cekDataKurang(chatId, session.draft, session.action, session.targetSheetIndex);
       if (!masihAdaYangKurang) {
         if (session.action === 'edit') {
           await updateKeSheets(chatId, session.draft, session.targetSheetIndex);
@@ -470,7 +471,7 @@ bot.on('message', async (msg) => {
     let data;
 
     if (msg.photo || isDocumentImage) {
-      bot.sendMessage(chatId, '📸 Gambar diterima! Gemini lagi nge-scan struknya nih...');
+      await bot.sendMessage(chatId, '📸 Gambar diterima! Gemini lagi nge-scan struknya nih...');
       const fileId = msg.photo ? msg.photo[msg.photo.length - 1].file_id : msg.document.file_id;
       const fileLink = await bot.getFileLink(fileId);
 
@@ -484,22 +485,22 @@ bot.on('message', async (msg) => {
       const jenisTransaksi = text ? await deteksiJenisTransaksi(model, text) : 'Pengeluaran';
       data = await ekstrakDetailTransaksi(model, jenisTransaksi, text, imageParts);
     } else {
-      bot.sendMessage(chatId, '⏳ Teks diterima! Llama 3 lagi ekstrak datanya...');
+      await bot.sendMessage(chatId, '⏳ Teks diterima! Llama 3 lagi ekstrak datanya...');
       const jenisTransaksi = await deteksiJenisTransaksiGroq(text);
       data = await ekstrakDetailTransaksiGroq(jenisTransaksi, text);
     }
 
     const targetSheetIndex = data.jenis_transaksi === 'Pemasukan' ? 1 : 0;
-    const adaYangKurang = cekDataKurang(chatId, data, 'create', targetSheetIndex);
+    const adaYangKurang = await cekDataKurang(chatId, data, 'create', targetSheetIndex);
 
     if (!adaYangKurang) {
       await simpanKeSheets(chatId, data);
     }
   } catch (error) {
     console.error("Error dari AI:", error);
-    bot.sendMessage(chatId, '❌ Wah, AI-nya gagal paham nih. Pastiin kata-katanya jelas ya.');
+    await bot.sendMessage(chatId, '❌ Wah, AI-nya gagal paham nih. Pastiin kata-katanya jelas ya.');
   }
-});
+};
 
 const simpanKeSheetsAPI = async (data, targetSheetIndex) => {
   await doc.loadInfo();
@@ -520,10 +521,18 @@ app.get('/', (req, res) => {
   res.send('Server Bot Keuangan Berjalan di Vercel!');
 });
 
-// PENTING: Endpoint khusus untuk menerima Webhook dari Telegram
-app.post('/api/webhook', (req, res) => {
-  bot.processUpdate(req.body); // Forward data ke bot Telegram
-  res.sendStatus(200);
+// PERUBAHAN UTAMA: Endpoint Webhook sekarang akan AWAIT fungsi prosesPesan
+app.post('/api/webhook', async (req, res) => {
+  try {
+    const msg = req.body.message || req.body.edited_message;
+    if (msg) {
+      await prosesPesan(msg); // <--- Vercel dipaksa nunggu ini kelar
+    }
+  } catch (error) {
+    console.error("Error Webhook:", error);
+  } finally {
+    res.status(200).send('OK'); // <--- Baru boleh matiin server
+  }
 });
 
 app.post('/api/catat', async (req, res) => {
