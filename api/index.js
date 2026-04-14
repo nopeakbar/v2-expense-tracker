@@ -320,26 +320,41 @@ const cekDataKurang = async (chatId, draftData, action = 'create', targetSheetIn
 // FITUR ANALISIS (Compound + GPT-OSS 120B)
 // =====================================================================
 
-const tarikDataSheetsUntukAnalisis = async () => {
+const tarikDataSheetsUntukAnalisis = async (days = 30) => {
   await doc.loadInfo();
   const sheetPengeluaran = doc.sheetsByIndex[0];
   const sheetPemasukan = doc.sheetsByIndex[1];
 
-  // Kita tarik maksimal 50 baris terakhir agar Vercel tidak timeout & hemat token
-  const rowsKeluar = await sheetPengeluaran.getRows();
-  const rowsMasuk = await sheetPemasukan.getRows();
-  
-  const recentKeluar = rowsKeluar.slice(-50);
-  const recentMasuk = rowsMasuk.slice(-50);
+  // Ambil 200 baris terakhir dari bawah biar hemat memory tapi jangkauannya jauh
+  const rowsKeluar = await sheetPengeluaran.getRows({ offset: Math.max(0, sheetPengeluaran.rowCount - 200) });
+  const rowsMasuk = await sheetPemasukan.getRows({ offset: Math.max(0, sheetPemasukan.rowCount - 200) });
+
+  // Tentukan batas waktu ("cut-off date") dalam satuan milidetik
+  const cutoffTime = new Date().getTime() - (days * 24 * 60 * 60 * 1000);
 
   let dataCSV = "=== PENGELUARAN ===\nTanggal,Item,Kategori,Nominal\n";
-  recentKeluar.forEach(row => {
-    if (row.get('Item')) dataCSV += `${row.get('Waktu')},${row.get('Item')},${row.get('Kategori')},${row.get('Nominal')}\n`;
+  
+  rowsKeluar.forEach(row => {
+    const waktuStr = row.get('Waktu');
+    if (waktuStr) {
+      const waktuRow = parseIndoDate(waktuStr);
+      // Filter: Hanya masukkan data yang lebih baru dari cutoffTime
+      if (waktuRow >= cutoffTime && row.get('Item')) {
+        dataCSV += `${waktuStr},${row.get('Item')},${row.get('Kategori')},${row.get('Nominal')}\n`;
+      }
+    }
   });
 
   dataCSV += "\n=== PEMASUKAN ===\nTanggal,Sumber,Kategori,Nominal\n";
-  recentMasuk.forEach(row => {
-    if (row.get('Sumber Pemasukan')) dataCSV += `${row.get('Waktu')},${row.get('Sumber Pemasukan')},${row.get('Kategori')},${row.get('Nominal')}\n`;
+  
+  rowsMasuk.forEach(row => {
+    const waktuStr = row.get('Waktu');
+    if (waktuStr) {
+      const waktuRow = parseIndoDate(waktuStr);
+      if (waktuRow >= cutoffTime && row.get('Sumber Pemasukan')) {
+        dataCSV += `${waktuStr},${row.get('Sumber Pemasukan')},${row.get('Kategori')},${row.get('Nominal')}\n`;
+      }
+    }
   });
 
   return dataCSV;
@@ -657,28 +672,132 @@ app.post('/api/webhook', async (req, res) => {
   }
 });
 
-app.post('/api/catat', async (req, res) => {
-  const { text } = req.body; 
-  if (!text) return res.status(400).json({ error: 'Teks tidak boleh kosong' });
+app.post('/api/chat', async (req, res) => {
+  const { text, user_id } = req.body;
+  
+  if (!text || !user_id) {
+    return res.status(400).json({ error: 'Text dan user_id wajib diisi' });
+  }
 
   try {
-    const jenisTransaksi = await deteksiJenisTransaksiGroq(text);
-    const data = await ekstrakDetailTransaksiGroq(jenisTransaksi, text);
-    const targetSheetIndex = data.jenis_transaksi === 'Pemasukan' ? 1 : 0;
+    // 1. Simpan pesan user ke Supabase
+    await supabase.from('chat_messages').insert([{ user_id, role: 'user', content: text }]);
+
+    // 2. CEK INTENT & EKSTRAK PARAMETER WAKTU
+    const intentPrompt = `
+    Tugasmu mengklasifikasikan niat kalimat user ke dalam 3 kategori:
+    1. "CATAT": Jika user ingin mencatat pengeluaran/pemasukan baru (misal: "makan ayam 20rb", "gajian 5jt").
+    2. "ANALISIS": Jika user bertanya tentang riwayat data, total, hari terboros, saran keuangan, atau rekap (misal: "hari apa gue boros?", "uang gue sisa berapa?", "rekap 2 minggu terakhir").
+    3. "NGOBROL": Jika sekadar sapaan atau obrolan di luar keuangan.
     
-    if (targetSheetIndex === 1) { 
-      if (isKosong(data.sumber_pemasukan)) return res.status(400).json({ error: 'Sumber pemasukan belum jelas nih.' });
-      if (!data.nominal || data.nominal === 0) return res.status(400).json({ error: 'Nominal pemasukannya belum ada atau nol.' });
-    } else { 
-      if (isKosong(data.item)) return res.status(400).json({ error: 'Nama barang/jasa pengeluaran belum jelas.' });
-      if (!data.nominal || data.nominal === 0) return res.status(400).json({ error: 'Harga/nominal pengeluarannya belum ada atau nol.' });
+    Kalimat: "${text}"
+    
+    Jika intent adalah "ANALISIS", deteksi berapa hari ke belakang yang diminta user. Jika user bilang "minggu ini" (berarti 7), "kemarin" (berarti 1), atau "bulan ini" (berarti 30). Jika tidak disebutkan spesifik, default ke 30.
+    
+    Output HANYA dalam format JSON murni TANPA markdown backticks:
+    {
+      "intent": "ANALISIS",
+      "days_ago": 14
+    }
+    `;
+
+    const intentCheck = await groq.chat.completions.create({
+      messages: [{ role: "user", content: intentPrompt }],
+      model: "llama-3.3-70b-versatile",
+      temperature: 0,
+    });
+    
+    // Parsing output JSON dari LLM dengan aman
+    let intentResult = { intent: "NGOBROL", days_ago: 30 };
+    try {
+      const rawOutput = intentCheck.choices[0]?.message?.content.trim();
+      const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+      intentResult = JSON.parse(cleanJson);
+    } catch (e) {
+      console.log("Gagal parsing intent JSON, fallback ke NGOBROL");
     }
 
-    await simpanKeSheetsAPI(data, targetSheetIndex); 
-    res.status(200).json({ success: true, message: `${jenisTransaksi} berhasil dicatat!`, data: data });
+    const intent = intentResult.intent.toUpperCase();
+    const daysAgo = intentResult.days_ago || 30;
+    let botReply = "";
+
+    // 3. LOGIKA CATAT TRANSAKSI
+    if (intent.includes("CATAT")) {
+      const jenisTransaksi = await deteksiJenisTransaksiGroq(text);
+      const data = await ekstrakDetailTransaksiGroq(jenisTransaksi, text);
+      const targetSheetIndex = data.jenis_transaksi === 'Pemasukan' ? 1 : 0;
+
+      if (targetSheetIndex === 0 && (!data.nominal || data.nominal === 0)) {
+        botReply = `Wah, harga **${data.item || 'barang'}** nya berapa nih bos? Kasih tau nominalnya sekalian ya biar bisa dicatat. 😅`;
+      } else if (targetSheetIndex === 1 && (!data.nominal || data.nominal === 0)) {
+        botReply = `Alhamdulillah dapet pemasukan, tapi **nominalnya** berapa nih? Kasih tau angkanya dong. 🤑`;
+      } else {
+        await simpanKeSheetsAPI(data, targetSheetIndex);
+        botReply = `✅ Sip! **${data.item || data.sumber_pemasukan}** sebesar Rp ${(data.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
+      }
+    } 
+    
+    // 4. LOGIKA TANYA DATA / ANALISIS
+    else if (intent.includes("ANALISIS")) {
+      // Tarik data dengan rentang waktu dinamis sesuai permintaan user!
+      const dataCSV = await tarikDataSheetsUntukAnalisis(daysAgo);
+      
+      const promptSystemAnalisis = {
+        role: "system",
+        content: `Kamu adalah Financial Advisor AI pribadi yang asyik, tajam, dan logis.
+        Berikut adalah data riwayat keuangan user selama ${daysAgo} hari terakhir dalam format CSV:
+        \n${dataCSV}\n
+        Aturan menjawab:
+        1. Analisis data di atas untuk menjawab pertanyaan user secara akurat.
+        2. Jika data kosong, beritahu bahwa belum ada transaksi di rentang waktu tersebut.
+        3. Gunakan bahasa gaul santai (gue/lu).
+        4. Dilarang pakai tabel markdown, gunakan bullet points saja jika perlu me-list sesuatu.`
+      };
+
+      const response = await groq.chat.completions.create({
+        messages: [promptSystemAnalisis, { role: "user", content: text }],
+        model: "openai/gpt-oss-120b", 
+        temperature: 0.2, 
+      });
+
+      botReply = response.choices[0]?.message?.content || "Duh, server lagi pusing baca datanya nih.";
+    } 
+    
+    // 5. LOGIKA NGOBROL BIASA
+    else {
+      const { data: history } = await supabase
+        .from('chat_messages')
+        .select('role, content')
+        .eq('user_id', user_id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      const formattedHistory = (history || []).reverse().map(msg => ({
+        role: msg.role === 'bot' ? 'assistant' : 'user',
+        content: msg.content
+      }));
+
+      const promptSystem = {
+        role: "system",
+        content: "Kamu adalah asisten AI di aplikasi keuangan Bandha. Jawab dengan santai, suportif, bergaya anak IT/Software Engineer. Dilarang pakai tabel markdown."
+      };
+
+      const response = await groq.chat.completions.create({
+        messages: [promptSystem, ...formattedHistory, { role: "user", content: text }],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.7,
+      });
+
+      botReply = response.choices[0]?.message?.content || "Gue lagi nge-blank dikit nih.";
+    }
+
+    // 6. Simpan balasan bot ke Supabase & kembalikan ke Flutter
+    await supabase.from('chat_messages').insert([{ user_id, role: 'bot', content: botReply }]);
+    res.status(200).json({ success: true, reply: botReply });
+
   } catch (error) {
-    console.error("Error API:", error);
-    res.status(500).json({ error: 'Gagal memproses data via AI' });
+    console.error("Error /api/chat:", error);
+    res.status(500).json({ error: 'Server AI sedang sibuk. Coba lagi ya.' });
   }
 });
 
