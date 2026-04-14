@@ -386,8 +386,15 @@ ${analisisMentah}`;
     });
 
     const saranFinal = gptOssResponse.choices[0]?.message?.content;
-    
-    await bot.sendMessage(chatId, `📊 **Laporan Arsitektur Keuanganmu**\n\n${saranFinal}`, { parse_mode: "Markdown" });
+    const pesanLengkap = `📊 **Laporan Arsitektur Keuanganmu**\n\n${saranFinal}`;
+    if (pesanLengkap.length > 4000) {
+      const chunks = pesanLengkap.match(/[\s\S]{1,4000}/g) || [];
+      for (let i = 0; i < chunks.length; i++) {
+        await bot.sendMessage(chatId, chunks[i], { parse_mode: "Markdown" });
+      }
+    } else {
+      await bot.sendMessage(chatId, pesanLengkap, { parse_mode: "Markdown" });
+    }
 
   } catch (error) {
     console.error("Gagal melakukan analisis:", error);
