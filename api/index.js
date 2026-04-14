@@ -782,14 +782,16 @@ ATURAN FORMATTING KETAT:
         if (line.startsWith('Tanggal,')) return; // Skip header
 
         const parts = line.split(',');
+        // Kita butuh minimal 4 data, tapi karena Waktu ada komanya, panjang array pasti >= 5
         if (parts.length >= 4) {
-            const nominal = parseInt(parts[3]) || 0;
+            // FIX: Selalu ambil index paling akhir untuk Nominal, dan index kedua dari belakang untuk Kategori
+            const nominal = parseInt(parts[parts.length - 1]) || 0;
             
             if (currentMode === 'masuk') {
                 totalMasuk += nominal;
             } else if (currentMode === 'keluar') {
                 totalKeluar += nominal;
-                const cat = parts[2] || 'Lainnya';
+                const cat = parts[parts.length - 2] || 'Lainnya'; 
                 catMap[cat] = (catMap[cat] || 0) + nominal;
             }
         }
