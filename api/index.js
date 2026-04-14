@@ -376,9 +376,16 @@ Keluarkan output teknis yang murni data dan statistik. Dilarang memberikan opini
 Berikan respons dalam bahasa Indonesia yang asyik, tajam, santai, namun sangat suportif. Bicaralah selayaknya mengobrol dengan sesama Software Engineer. Gunakan analogi dari dunia programming, backend development, atau deployment arsitektur (misalnya: menyebut pengeluaran bocor sebagai 'memory leak', menabung sebagai 'optimasi database', atau sisa uang tipis sebagai 'resource limit').
 Jangan panggil user dengan sebutan Bapak/Ibu. Langsung ke poinnya dan berikan kritik membangun tentang cashflow-nya.
 
+ATURAN FORMATTING KETAT (UNTUK TAMPILAN TELEGRAM):
+1. DILARANG KERAS menggunakan Tabel Markdown (| kolom | kolom |). Gunakan list biasa.
+2. DILARANG KERAS menggunakan tag HTML seperti <br>.
+3. DILARANG menggunakan Heading dengan hashtag (seperti # atau ##). 
+4. Untuk membuat judul atau sub-judul, cukup gunakan teks tebal dengan format: **Judul Bagian**
+5. Gunakan bullet points (-) untuk menjabarkan poin-poin.
+6. Jaga agar output ringkas, padat, dan maksimal 4 paragraf utama agar tidak melebihi limit karakter chat.
+
 Berikut adalah hasil hitungan matematis dari AI Data Analyst:
 ${analisisMentah}`;
-
     const gptOssResponse = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptGptOss }],
       model: "openai/gpt-oss-120b", // Model raksasa khusus komunikasi NLP
@@ -387,10 +394,11 @@ ${analisisMentah}`;
 
     const saranFinal = gptOssResponse.choices[0]?.message?.content;
     const pesanLengkap = `📊 **Laporan Arsitektur Keuanganmu**\n\n${saranFinal}`;
+    
     if (pesanLengkap.length > 4000) {
-      const chunks = pesanLengkap.match(/[\s\S]{1,4000}/g) || [];
+      const chunks = pesanLengkap.match(/[\s\S]{1,3900}(\n\n|$)/g) || [pesanLengkap.substring(0, 4000), pesanLengkap.substring(4000)];
       for (let i = 0; i < chunks.length; i++) {
-        await bot.sendMessage(chatId, chunks[i], { parse_mode: "Markdown" });
+        await bot.sendMessage(chatId, chunks[i].trim(), { parse_mode: "Markdown" });
       }
     } else {
       await bot.sendMessage(chatId, pesanLengkap, { parse_mode: "Markdown" });
