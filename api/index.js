@@ -350,7 +350,7 @@ const jalankanAnalisisKeuangan = async (chatId) => {
     await bot.sendMessage(chatId, '🔍 Mengumpulkan data mentah dari database...');
     const dataCSV = await tarikDataSheetsUntukAnalisis();
 
-    await bot.sendMessage(chatId, '🤖 GOAT GPT sedang melakukan komputasi dan crunching data matematis...');
+    await bot.sendMessage(chatId, '🤖 GOAT GPT sedang melakukan komputasi alias mikir buat ngasih data paling gokil...');
     
     // TAHAP 1: Compound AI untuk Analisis Data Akurat
     const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
@@ -369,7 +369,7 @@ Keluarkan output teknis yang murni data dan statistik. Dilarang memberikan opini
     });
     const analisisMentah = analisisResponse.choices[0]?.message?.content;
 
-    await bot.sendMessage(chatId, '🗣️ Mengoper hasil ke GPT-OSS 120B untuk merangkai saran...');
+    await bot.sendMessage(chatId, '🗣️ Mengoper hasil ke GPT-OSS 120B untuk ngasih jawaban ke elu...');
 
     // TAHAP 2: GPT-OSS 120B untuk Humanize & Komunikasi
     const promptGptOss = `Kamu adalah asisten penasihat keuangan pribadi. 
