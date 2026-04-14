@@ -350,7 +350,7 @@ const jalankanAnalisisKeuangan = async (chatId) => {
     await bot.sendMessage(chatId, '🔍 Mengumpulkan data mentah dari database...');
     const dataCSV = await tarikDataSheetsUntukAnalisis();
 
-    await bot.sendMessage(chatId, '🤖 Groq Compound sedang melakukan komputasi dan crunching data matematis...');
+    await bot.sendMessage(chatId, '🤖 GOAT GPT sedang melakukan komputasi dan crunching data matematis...');
     
     // TAHAP 1: Compound AI untuk Analisis Data Akurat
     const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
@@ -362,12 +362,12 @@ Tugasmu sebagai Data Analyst murni:
 Keluarkan output teknis yang murni data dan statistik. Dilarang memberikan opini.
 \nData:\n${dataCSV}`;
 
-    const compoundResponse = await groq.chat.completions.create({
+    const analisisResponse = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptCompound }],
-      model: "groq/compound", // Menggunakan Agentic System Groq
-      temperature: 0,
+      model: "openai/gpt-oss-120b", // Pakai model paling flagship
+      temperature: 0, // WAJIB 0 biar akurat ngitung angkanya
     });
-    const analisisMentah = compoundResponse.choices[0]?.message?.content;
+    const analisisMentah = analisisResponse.choices[0]?.message?.content;
 
     await bot.sendMessage(chatId, '🗣️ Mengoper hasil ke GPT-OSS 120B untuk merangkai saran...');
 
