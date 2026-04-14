@@ -814,4 +814,57 @@ ATURAN FORMATTING KETAT:
   }
 });
 
+// ENDPOINT BARU KHUSUS UNTUK CHATBOT DI APLIKASI FLUTTER
+app.post('/api/chat', async (req, res) => {
+  const { text, user_id } = req.body;
+  
+  if (!text || !user_id) {
+    return res.status(400).json({ error: 'Text dan user_id wajib diisi' });
+  }
+
+  try {
+    // 1. Simpan pesan user ke Supabase
+    await supabase.from('chat_messages').insert([{ user_id, role: 'user', content: text }]);
+
+    // 2. Ambil riwayat chat (opsional, ambil 5 terakhir untuk konteks)
+    const { data: history } = await supabase
+      .from('chat_messages')
+      .select('role, content')
+      .eq('user_id', user_id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    // Format history untuk Groq (Llama/GPT)
+    const formattedHistory = (history || []).reverse().map(msg => ({
+      role: msg.role === 'bot' ? 'assistant' : 'user',
+      content: msg.content
+    }));
+
+    // 3. Panggil AI untuk membalas
+    // (Di sini kita pakai model GPT-OSS atau Llama untuk merespons natural)
+    const promptSystem = {
+      role: "system",
+      content: "Kamu adalah asisten keuangan AI di aplikasi Bandha. Jawab dengan santai, suportif, bergaya anak IT/Software Engineer. Jika user menyebut pengeluaran/pemasukan, beritahu mereka bahwa fitur pencatatan otomatis via chat sedang disiapkan."
+    };
+
+    const response = await groq.chat.completions.create({
+      messages: [promptSystem, ...formattedHistory, { role: "user", content: text }],
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.7,
+    });
+
+    const botReply = response.choices[0]?.message?.content || "Maaf, aku lagi nge-blank.";
+
+    // 4. Simpan balasan bot ke Supabase
+    await supabase.from('chat_messages').insert([{ user_id, role: 'bot', content: botReply }]);
+
+    // 5. Kembalikan ke Flutter
+    res.status(200).json({ success: true, reply: botReply });
+
+  } catch (error) {
+    console.error("Error /api/chat:", error);
+    res.status(500).json({ error: 'Server AI sedang sibuk.' });
+  }
+});
+
 export default app;
