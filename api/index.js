@@ -118,11 +118,17 @@ const ekstrakJson = (rawText) => {
 const parseIndoDate = (dateStr) => {
   if (!dateStr) return 0;
   try {
-    const cleanStr = String(dateStr).replace(' (Edited)', '');
-    const [datePart, timePart] = cleanStr.split(', ');
-    const [d, m, y] = datePart.split('/');
-    const [hr, min, sec] = timePart.split('.');
-    return new Date(y, m - 1, d, hr, min, sec).getTime();
+    const cleanStr = String(dateStr).replace(' (Edited)', '').trim();
+    const regex = /(\d+)\D+(\d+)\D+(\d+)\D+(\d+)\D+(\d+)\D+(\d+)/;
+    const match = cleanStr.match(regex);
+    
+    if (match) {
+      const [, d, m, y, hr, min, sec] = match;
+      // JS Date butuh month index (0-11), makanya m - 1
+      return new Date(y, m - 1, d, hr, min, sec).getTime();
+    }
+    
+    return 0; // Fallback jika format benar-benar aneh
   } catch (e) {
     return 0;
   }
