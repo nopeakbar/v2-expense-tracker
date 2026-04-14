@@ -759,8 +759,52 @@ ATURAN FORMATTING KETAT:
 
     const saranFinal = gptOssResponse.choices[0]?.message?.content;
     
-    // 4. Return ke Flutter App
-    res.status(200).json({ success: true, data: saranFinal });
+    // 4. Kalkulasi Data Mentah untuk Chart (Javascript murni agar akurat)
+    const lines = dataCSV.split('\n');
+    let totalMasuk = 0;
+    let totalKeluar = 0;
+    const catMap = {};
+
+    // Penyesuaian deteksi baris: Pemasukan biasanya 4 kolom, Pengeluaran dari Google Sheets yang kamu buat itu ada 9 kolom [cite: 43-47]
+    // Tapi karena fungsi tarikDataSheetsUntukAnalisis hanya me-return 4 kolom (Tanggal, Item/Sumber, Kategori, Nominal) , kita pakai patokan itu.
+    
+    let currentMode = ''; // Untuk mendeteksi lagi di blok mana
+
+    lines.forEach(line => {
+        if (line.includes('=== PENGELUARAN ===')) {
+            currentMode = 'keluar';
+            return;
+        }
+        if (line.includes('=== PEMASUKAN ===')) {
+            currentMode = 'masuk';
+            return;
+        }
+        if (line.startsWith('Tanggal,')) return; // Skip header
+
+        const parts = line.split(',');
+        if (parts.length >= 4) {
+            const nominal = parseInt(parts[3]) || 0;
+            
+            if (currentMode === 'masuk') {
+                totalMasuk += nominal;
+            } else if (currentMode === 'keluar') {
+                totalKeluar += nominal;
+                const cat = parts[2] || 'Lainnya';
+                catMap[cat] = (catMap[cat] || 0) + nominal;
+            }
+        }
+    });
+
+    // 5. Return JSON Lengkap (Teks Analisis + Data Chart) ke Flutter
+    res.status(200).json({ 
+        success: true, 
+        analysis: saranFinal, 
+        chartData: {
+            totalPemasukan: totalMasuk,
+            totalPengeluaran: totalKeluar,
+            categories: Object.entries(catMap).map(([name, value]) => ({ name, value }))
+        }
+    });
 
   } catch (error) {
     console.error("Error /api/analisis:", error);
