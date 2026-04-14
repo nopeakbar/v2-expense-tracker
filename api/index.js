@@ -128,7 +128,7 @@ const parseIndoDate = (dateStr) => {
       return new Date(y, m - 1, d, hr, min, sec).getTime();
     }
     
-    return 0; // Fallback jika format benar-benar aneh
+    return 0; // Fallback kalau formatnya bener-bener alien
   } catch (e) {
     return 0;
   }
