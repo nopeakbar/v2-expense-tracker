@@ -5,7 +5,11 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import Groq from 'groq-sdk';
+import { createClient } from '@supabase/supabase-js';
 
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 app.use(express.json());
 
@@ -24,7 +28,25 @@ const serviceAccountAuth = new JWT({
 });
 const doc = new GoogleSpreadsheet(sheetId, serviceAccountAuth);
 
-let userSessions = {}; 
+// =====================================================================
+// SUPABASE SESSION HELPERS (Pengganti userSessions={})
+// =====================================================================
+const getSession = async (chatId) => {
+  const { data, error } = await supabase.from('user_sessions').select('session_data').eq('chat_id', chatId).single();
+  return data ? data.session_data : null;
+};
+
+const setSession = async (chatId, sessionData) => {
+  await supabase.from('user_sessions').upsert({ chat_id: chatId, session_data: sessionData, updated_at: new Date() });
+};
+
+const deleteSession = async (chatId) => {
+  await supabase.from('user_sessions').delete().eq('chat_id', chatId);
+};
+
+// =====================================================================
+// PROMPT & HELPER FUNCTIONS
+// ===================================================================== 
 
 // =====================================================================
 // PROMPT & HELPER FUNCTIONS
@@ -234,63 +256,142 @@ const isKosong = (val) => {
 const cekDataKurang = async (chatId, draftData, action = 'create', targetSheetIndex = 0) => {
   if (targetSheetIndex === 1) {
     if (isKosong(draftData.sumber_pemasukan)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "sumber_pemasukan", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "sumber_pemasukan", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Eh, **sumber pemasukannya** dari mana nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (!draftData.nominal || draftData.nominal === 0) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "nominal", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "nominal", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Eh, **nominalnya** berapa duit? (Ketik angkanya aja) 💸`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.kategori)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "kategori", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "kategori", action, targetSheetIndex });
       await bot.sendMessage(chatId, `**Kategorinya** apa nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     return false;
   } else {
     if (isKosong(draftData.item)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "item", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "item", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Eh, **nama barang/jasanya** belum dapet nih. Tadi beli apa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (!draftData.nominal || draftData.nominal === 0) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "nominal", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "nominal", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Eh, **harganya** belum dapet nih. Berapa duit tadi? 💸`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.kategori)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "kategori", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "kategori", action, targetSheetIndex });
       await bot.sendMessage(chatId, `**Kategorinya** masuk ke mana nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.tempat)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "tempat", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "tempat", action, targetSheetIndex });
       await bot.sendMessage(chatId, `**Tempatnya** di mana nih bos?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.tujuan)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "tujuan", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "tujuan", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Eh, **tujuannya** belum disebut nih.\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.partisipan)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "partisipan", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "partisipan", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Perginya sama **siapa** nih?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.metode_bayar)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "metode_bayar", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "metode_bayar", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Bayarnya pakai **metode** apa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     if (isKosong(draftData.rating)) {
-      userSessions[chatId] = { mode: 'missing_field', draft: draftData, missingField: "rating", action, targetSheetIndex };
+      await setSession(chatId, { mode: 'missing_field', draft: draftData, missingField: "rating", action, targetSheetIndex });
       await bot.sendMessage(chatId, `Terakhir nih, **Rating** berapa?\nKetik **'x'** buat skip.`, { parse_mode: "Markdown" });
       return true;
     }
     return false;
+  }
+};
+
+// =====================================================================
+// FITUR ANALISIS (Compound + GPT-OSS 120B)
+// =====================================================================
+
+const tarikDataSheetsUntukAnalisis = async () => {
+  await doc.loadInfo();
+  const sheetPengeluaran = doc.sheetsByIndex[0];
+  const sheetPemasukan = doc.sheetsByIndex[1];
+
+  // Kita tarik maksimal 50 baris terakhir agar Vercel tidak timeout & hemat token
+  const rowsKeluar = await sheetPengeluaran.getRows();
+  const rowsMasuk = await sheetPemasukan.getRows();
+  
+  const recentKeluar = rowsKeluar.slice(-50);
+  const recentMasuk = rowsMasuk.slice(-50);
+
+  let dataCSV = "=== PENGELUARAN ===\nTanggal,Item,Kategori,Nominal\n";
+  recentKeluar.forEach(row => {
+    if (row.get('Item')) dataCSV += `${row.get('Waktu')},${row.get('Item')},${row.get('Kategori')},${row.get('Nominal')}\n`;
+  });
+
+  dataCSV += "\n=== PEMASUKAN ===\nTanggal,Sumber,Kategori,Nominal\n";
+  recentMasuk.forEach(row => {
+    if (row.get('Sumber Pemasukan')) dataCSV += `${row.get('Waktu')},${row.get('Sumber Pemasukan')},${row.get('Kategori')},${row.get('Nominal')}\n`;
+  });
+
+  return dataCSV;
+};
+
+const jalankanAnalisisKeuangan = async (chatId) => {
+  try {
+    await bot.sendMessage(chatId, '🔍 Mengumpulkan data mentah dari database...');
+    const dataCSV = await tarikDataSheetsUntukAnalisis();
+
+    await bot.sendMessage(chatId, '🤖 Groq Compound sedang melakukan komputasi dan crunching data matematis...');
+    
+    // TAHAP 1: Compound AI untuk Analisis Data Akurat
+    const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
+Tugasmu sebagai Data Analyst murni:
+1. Hitung total pemasukan dan total pengeluaran.
+2. Cari selisihnya (Net Cashflow).
+3. Identifikasi top 3 kategori pengeluaran terbesar.
+4. Temukan pola atau anomali jika ada.
+Keluarkan output teknis yang murni data dan statistik. Dilarang memberikan opini.
+\nData:\n${dataCSV}`;
+
+    const compoundResponse = await groq.chat.completions.create({
+      messages: [{ role: "user", content: promptCompound }],
+      model: "groq/compound", // Menggunakan Agentic System Groq
+      temperature: 0,
+    });
+    const analisisMentah = compoundResponse.choices[0]?.message?.content;
+
+    await bot.sendMessage(chatId, '🗣️ Mengoper hasil ke GPT-OSS 120B untuk merangkai saran...');
+
+    // TAHAP 2: GPT-OSS 120B untuk Humanize & Komunikasi
+    const promptGptOss = `Kamu adalah asisten penasihat keuangan pribadi. 
+Berikan respons dalam bahasa Indonesia yang asyik, tajam, santai, namun sangat suportif. Bicaralah selayaknya mengobrol dengan sesama Software Engineer. Gunakan analogi dari dunia programming, backend development, atau deployment arsitektur (misalnya: menyebut pengeluaran bocor sebagai 'memory leak', menabung sebagai 'optimasi database', atau sisa uang tipis sebagai 'resource limit').
+Jangan panggil user dengan sebutan Bapak/Ibu. Langsung ke poinnya dan berikan kritik membangun tentang cashflow-nya.
+
+Berikut adalah hasil hitungan matematis dari AI Data Analyst:
+${analisisMentah}`;
+
+    const gptOssResponse = await groq.chat.completions.create({
+      messages: [{ role: "user", content: promptGptOss }],
+      model: "openai/gpt-oss-120b", // Model raksasa khusus komunikasi NLP
+      temperature: 0.7, // Ditinggikan sedikit agar bahasanya lebih kreatif
+    });
+
+    const saranFinal = gptOssResponse.choices[0]?.message?.content;
+    
+    await bot.sendMessage(chatId, `📊 **Laporan Arsitektur Keuanganmu**\n\n${saranFinal}`, { parse_mode: "Markdown" });
+
+  } catch (error) {
+    console.error("Gagal melakukan analisis:", error);
+    await bot.sendMessage(chatId, '❌ Server sedang sibuk atau AI gagal menganalisis datamu. Coba lagi nanti ya.');
   }
 };
 
@@ -302,19 +403,25 @@ const prosesPesan = async (msg) => {
   const text = msg.text || msg.caption || '';
 
   if (text === '/batal') {
-    delete userSessions[chatId];
+    await deleteSession(chatId);
     await bot.sendMessage(chatId, 'Oke, proses sebelumnya dibatalkan. Ada yang mau dicatat lagi?');
     return;
   }
 
   if (text === '/start') {
-    delete userSessions[chatId];
-    await bot.sendMessage(chatId, `Halo, Akbar! 👋 Aku bot my keuangan gw anjay.\n\nCommand yang tersedia:\n📝 Langsung ketik pengeluaran/pemasukanmu\n📸 Kirim Foto Struk Belanjaanmu\n↩️ /undo - Hapus data terakhir\n✏️ /edit - Ubah data terakhir\n❌ /batal - Batalkan percakapan bot yang menggantung`);
+    await deleteSession(chatId);
+    await bot.sendMessage(chatId, `Halo, Akbar! 👋 Aku bot my keuangan gw anjay.\n\nCommand yang tersedia:\n📝 Langsung ketik pengeluaran/pemasukanmu\n📸 Kirim Foto Struk Belanjaanmu\n📊 /analisis - Review arsitektur keuanganmu\n↩️ /undo - Hapus data terakhir\n✏️ /edit - Ubah data terakhir\n❌ /batal - Batalkan percakapan bot`);
+    return;
+  }
+
+  if (text === '/analisis') {
+    await deleteSession(chatId);
+    await jalankanAnalisisKeuangan(chatId);
     return;
   }
 
   if (text === '/undo') {
-    delete userSessions[chatId];
+    await deleteSession(chatId);
     try {
       await bot.sendMessage(chatId, '⏳ Sedang mencari data terakhir untuk di-undo...');
       await doc.loadInfo();
@@ -355,7 +462,7 @@ const prosesPesan = async (msg) => {
   }
 
   if (text === '/edit') {
-    delete userSessions[chatId];
+    await deleteSession(chatId);
     try {
       await bot.sendMessage(chatId, '⏳ Sedang mengambil data terakhir kamu...');
       await doc.loadInfo();
@@ -395,8 +502,8 @@ const prosesPesan = async (msg) => {
     return;
   }
 
-  if (userSessions[chatId]) {
-    const session = userSessions[chatId];
+  const session = await getSession(chatId);
+  if (session) {
 
     if (session.mode === 'edit_prompt') {
       await bot.sendMessage(chatId, '⏳ Sebentar, lagi ekstrak editan datanya...');
@@ -416,7 +523,7 @@ const prosesPesan = async (msg) => {
         const adaYangKurang = await cekDataKurang(chatId, data, 'edit', targetSheetIndex);
         if (!adaYangKurang) {
           await updateKeSheets(chatId, data, targetSheetIndex);
-          delete userSessions[chatId];
+          await deleteSession(chatId);
         }
       } catch (error) {
         console.error("Error AI saat edit:", error);
@@ -457,7 +564,7 @@ const prosesPesan = async (msg) => {
         } else {
           await simpanKeSheets(chatId, session.draft);
         }
-        delete userSessions[chatId];
+        await deleteSession(chatId);
       }
       return;
     }
