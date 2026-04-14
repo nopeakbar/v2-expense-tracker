@@ -331,9 +331,11 @@ const tarikDataSheetsUntukAnalisis = async (days = 30) => {
   const sheetPengeluaran = doc.sheetsByIndex[0];
   const sheetPemasukan = doc.sheetsByIndex[1];
 
-  // Ambil 200 baris terakhir dari bawah biar hemat memory tapi jangkauannya jauh
-  const rowsKeluar = await sheetPengeluaran.getRows({ offset: Math.max(0, sheetPengeluaran.rowCount - 200) });
-  const rowsMasuk = await sheetPemasukan.getRows({ offset: Math.max(0, sheetPemasukan.rowCount - 200) });
+  const allRowsKeluar = await sheetPengeluaran.getRows();
+  const rowsKeluar = allRowsKeluar.slice(-200);
+
+  const allRowsMasuk = await sheetPemasukan.getRows();
+  const rowsMasuk = allRowsMasuk.slice(-200);
 
   // Tentukan batas waktu ("cut-off date") dalam satuan milidetik
   const cutoffTime = new Date().getTime() - (days * 24 * 60 * 60 * 1000);
