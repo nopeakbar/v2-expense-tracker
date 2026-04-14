@@ -326,7 +326,7 @@ const cekDataKurang = async (chatId, draftData, action = 'create', targetSheetIn
 // FITUR ANALISIS (Compound + GPT-OSS 120B)
 // =====================================================================
 
-const tarikDataSheetsUntukAnalisis = async (days = 30) => {
+const tarikDataSheetsUntukAnalisis = async (days = 3650) => {
   await doc.loadInfo();
   const sheetPengeluaran = doc.sheetsByIndex[0];
   const sheetPemasukan = doc.sheetsByIndex[1];
@@ -844,8 +844,9 @@ app.post('/api/simpan', async (req, res) => {
 
 app.get('/api/analisis', async (req, res) => {
   try {
-    // 1. Tarik Data CSV
-    const dataCSV = await tarikDataSheetsUntukAnalisis();
+
+    const requestedDays = parseInt(req.query.days) || 30;
+    const dataCSV = await tarikDataSheetsUntukAnalisis(requestedDays);
 
     // 2. TAHAP 1: Compound AI untuk Analisis Data Akurat
     const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
