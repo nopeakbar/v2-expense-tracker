@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
 const app = express();
 app.use(express.json());
 
@@ -26,10 +27,11 @@ const serviceAccountAuth = new JWT({
   key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
+
 const doc = new GoogleSpreadsheet(sheetId, serviceAccountAuth);
 
 // =====================================================================
-// SUPABASE SESSION HELPERS (Pengganti userSessions={})
+// SUPABASE SESSION HELPERS
 // =====================================================================
 const getSession = async (chatId) => {
   const { data, error } = await supabase.from('user_sessions').select('session_data').eq('chat_id', chatId).single();
@@ -43,10 +45,6 @@ const setSession = async (chatId, sessionData) => {
 const deleteSession = async (chatId) => {
   await supabase.from('user_sessions').delete().eq('chat_id', chatId);
 };
-
-// =====================================================================
-// PROMPT & HELPER FUNCTIONS
-// ===================================================================== 
 
 // =====================================================================
 // PROMPT & HELPER FUNCTIONS
@@ -68,7 +66,8 @@ Ekstrak data dari kalimat user menjadi JSON dengan struktur TEPAT ini:
   "rating": "nilai 1-5 atau ulasan singkat atau null"
 }
 ATURAN KETAT:
-- nominal harus angka (integer), bukan string. Jika tidak disebutkan isi 0.
+- nominal harus angka (integer), bukan string.
+Jika tidak disebutkan isi 0.
 - Untuk field yang tidak ada informasinya, isi dengan nilai null (bukan string "null").
 - Kembalikan JSON murni saja, TANPA markdown backtick, TANPA komentar, TANPA teks tambahan.`;
 
@@ -81,7 +80,8 @@ Ekstrak data dari kalimat user menjadi JSON dengan struktur TEPAT ini:
   "catatan": "catatan tambahan atau null"
 }
 ATURAN KETAT:
-- nominal harus angka (integer), bukan string. Jika tidak disebutkan isi 0.
+- nominal harus angka (integer), bukan string.
+Jika tidak disebutkan isi 0.
 - Untuk field yang tidak ada informasinya, isi dengan nilai null (bukan string "null").
 - Kembalikan JSON murni saja, TANPA markdown backtick, TANPA komentar, TANPA teks tambahan.`;
 
@@ -96,6 +96,7 @@ const ekstrakJson = (rawText) => {
   let braceDepth = 0;
   let start = -1;
   let end = -1;
+
   for (let i = 0; i < cleaned.length; i++) {
     if (cleaned[i] === '{') {
       if (braceDepth === 0) start = i;
@@ -121,14 +122,12 @@ const parseIndoDate = (dateStr) => {
     const cleanStr = String(dateStr).replace(' (Edited)', '').trim();
     const regex = /(\d+)\D+(\d+)\D+(\d+)\D+(\d+)\D+(\d+)\D+(\d+)/;
     const match = cleanStr.match(regex);
-    
     if (match) {
       const [, d, m, y, hr, min, sec] = match;
       // JS Date butuh month index (0-11), makanya m - 1
       return new Date(y, m - 1, d, hr, min, sec).getTime();
     }
-    
-    return 0; // Fallback kalau formatnya bener-bener alien
+    return 0;
   } catch (e) {
     return 0;
   }
@@ -325,7 +324,6 @@ const cekDataKurang = async (chatId, draftData, action = 'create', targetSheetIn
 // =====================================================================
 // FITUR ANALISIS (Compound + GPT-OSS 120B)
 // =====================================================================
-
 const tarikDataSheetsUntukAnalisis = async (days = 3650) => {
   await doc.loadInfo();
   const sheetPengeluaran = doc.sheetsByIndex[0];
@@ -333,20 +331,16 @@ const tarikDataSheetsUntukAnalisis = async (days = 3650) => {
 
   const allRowsKeluar = await sheetPengeluaran.getRows();
   const rowsKeluar = allRowsKeluar.slice(-200);
-
   const allRowsMasuk = await sheetPemasukan.getRows();
   const rowsMasuk = allRowsMasuk.slice(-200);
 
-  // Tentukan batas waktu ("cut-off date") dalam satuan milidetik
   const cutoffTime = new Date().getTime() - (days * 24 * 60 * 60 * 1000);
-
   let dataCSV = "=== PENGELUARAN ===\nTanggal,Item,Kategori,Nominal\n";
   
   rowsKeluar.forEach(row => {
     const waktuStr = row.get('Waktu');
     if (waktuStr) {
       const waktuRow = parseIndoDate(waktuStr);
-      // Filter: Hanya masukkan data yang lebih baru dari cutoffTime
       if (waktuRow >= cutoffTime && row.get('Item')) {
         dataCSV += `${waktuStr},${row.get('Item')},${row.get('Kategori')},${row.get('Nominal')}\n`;
       }
@@ -364,7 +358,6 @@ const tarikDataSheetsUntukAnalisis = async (days = 3650) => {
       }
     }
   });
-
   return dataCSV;
 };
 
@@ -372,10 +365,8 @@ const jalankanAnalisisKeuangan = async (chatId) => {
   try {
     await bot.sendMessage(chatId, '🔍 Mengumpulkan data mentah dari database...');
     const dataCSV = await tarikDataSheetsUntukAnalisis();
-
     await bot.sendMessage(chatId, '🤖 GOAT GPT sedang melakukan komputasi alias mikir buat ngasih data paling gokil...');
-    
-    // TAHAP 1: Compound AI untuk Analisis Data Akurat
+
     const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
 Tugasmu sebagai Data Analyst murni:
 1. Hitung total pemasukan dan total pengeluaran.
@@ -387,37 +378,36 @@ Keluarkan output teknis yang murni data dan statistik. Dilarang memberikan opini
 
     const analisisResponse = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptCompound }],
-      model: "openai/gpt-oss-120b", // Pakai model paling flagship
-      temperature: 0, // WAJIB 0 biar akurat ngitung angkanya
+      model: "openai/gpt-oss-120b",
+      temperature: 0,
     });
     const analisisMentah = analisisResponse.choices[0]?.message?.content;
 
     await bot.sendMessage(chatId, '🗣️ Mengoper hasil ke GPT-OSS 120B untuk ngasih jawaban ke elu...');
 
-    // TAHAP 2: GPT-OSS 120B untuk Humanize & Komunikasi
-    const promptGptOss = `Kamu adalah asisten penasihat keuangan pribadi. 
-Berikan respons dalam bahasa Indonesia yang asyik, tajam, santai, namun sangat suportif. Bicaralah selayaknya mengobrol dengan sesama Software Engineer. Gunakan analogi dari dunia programming, backend development, atau deployment arsitektur (misalnya: menyebut pengeluaran bocor sebagai 'memory leak', menabung sebagai 'optimasi database', atau sisa uang tipis sebagai 'resource limit').
+    const promptGptOss = `Kamu adalah asisten penasihat keuangan pribadi.
+Berikan respons dalam bahasa Indonesia yang asyik, tajam, santai, namun sangat suportif. Bicaralah selayaknya mengobrol dengan sesama Software Engineer.
+Gunakan analogi dari dunia programming, backend development, atau deployment arsitektur (misalnya: menyebut pengeluaran bocor sebagai 'memory leak', menabung sebagai 'optimasi database', atau sisa uang tipis sebagai 'resource limit').
 Jangan panggil user dengan sebutan Bapak/Ibu. Langsung ke poinnya dan berikan kritik membangun tentang cashflow-nya.
-
 ATURAN FORMATTING KETAT (UNTUK TAMPILAN TELEGRAM):
 1. DILARANG KERAS menggunakan Tabel Markdown (| kolom | kolom |). Gunakan list biasa.
 2. DILARANG KERAS menggunakan tag HTML seperti <br>.
-3. DILARANG menggunakan Heading dengan hashtag (seperti # atau ##). 
+3. DILARANG menggunakan Heading dengan hashtag (seperti # atau ##).
 4. Untuk membuat judul atau sub-judul, cukup gunakan teks tebal dengan format: **Judul Bagian**
 5. Gunakan bullet points (-) untuk menjabarkan poin-poin.
 6. Jaga agar output ringkas, padat, dan maksimal 4 paragraf utama agar tidak melebihi limit karakter chat.
-
 Berikut adalah hasil hitungan matematis dari AI Data Analyst:
 ${analisisMentah}`;
+
     const gptOssResponse = await groq.chat.completions.create({
       messages: [{ role: "user", content: promptGptOss }],
-      model: "openai/gpt-oss-120b", // Model raksasa khusus komunikasi NLP
-      temperature: 0.7, // Ditinggikan sedikit agar bahasanya lebih kreatif
+      model: "openai/gpt-oss-120b",
+      temperature: 0.7,
     });
 
     const saranFinal = gptOssResponse.choices[0]?.message?.content;
     const pesanLengkap = `📊 **Laporan Arsitektur Keuanganmu**\n\n${saranFinal}`;
-    
+
     if (pesanLengkap.length > 4000) {
       const chunks = pesanLengkap.match(/[\s\S]{1,3900}(\n\n|$)/g) || [pesanLengkap.substring(0, 4000), pesanLengkap.substring(4000)];
       for (let i = 0; i < chunks.length; i++) {
@@ -433,9 +423,6 @@ ${analisisMentah}`;
   }
 };
 
-// =====================================================================
-// PERUBAHAN UTAMA: Fungsi diganti dari bot.on ke prosesPesan
-// =====================================================================
 const prosesPesan = async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || msg.caption || '';
@@ -481,7 +468,6 @@ const prosesPesan = async (msg) => {
 
       let lastRowToDelete = null;
       let deletedName = '';
-
       if (time1 > time0) {
         lastRowToDelete = lastRow1;
         deletedName = `Pemasukan: ${lastRow1.get('Sumber Pemasukan') || 'Tidak diketahui'}`;
@@ -522,7 +508,6 @@ const prosesPesan = async (msg) => {
 
       let targetSheetIndex = 0;
       let jenisInfo = '';
-
       if (time1 > time0) {
         targetSheetIndex = 1;
         jenisInfo = `🤑 **${lastRow1.get('Sumber Pemasukan') || 'Sumber Tidak Diketahui'}** - Rp ${lastRow1.get('Nominal') || '0'}`;
@@ -531,7 +516,7 @@ const prosesPesan = async (msg) => {
         jenisInfo = `☕ **${lastRow0.get('Item') || 'Item Tidak Diketahui'}** - Rp ${lastRow0.get('Nominal') || '0'}`;
       }
 
-      userSessions[chatId] = { mode: 'edit_prompt', targetSheetIndex };
+      await setSession(chatId, { mode: 'edit_prompt', targetSheetIndex });
       await bot.sendMessage(chatId, `Data terakhir di Sheets:\n${jenisInfo}\n\nKetik kalimat revisi yang bener buat ngegantiin data ini.\n\nAtau ketik /batal kalau nggak jadi edit.`, { parse_mode: "Markdown" });
     } catch (error) {
       console.error("Gagal ambil data buat edit:", error);
@@ -554,10 +539,8 @@ const prosesPesan = async (msg) => {
           model: "llama-3.3-70b-versatile",
           temperature: 0,
         });
-
         const data = ekstrakJson(response.choices[0]?.message?.content);
         data.jenis_transaksi = targetSheetIndex === 1 ? 'Pemasukan' : 'Pengeluaran';
-
         const adaYangKurang = await cekDataKurang(chatId, data, 'edit', targetSheetIndex);
         if (!adaYangKurang) {
           await updateKeSheets(chatId, data, targetSheetIndex);
@@ -572,7 +555,6 @@ const prosesPesan = async (msg) => {
 
     if (session.mode === 'missing_field') {
       const missingField = session.missingField;
-
       if (text.toLowerCase() === 'x') {
         if (missingField === 'nominal') {
           await bot.sendMessage(chatId, `Waduh, kalau nominal nggak boleh di-skip bos! Ketik angkanya ya 😅`);
@@ -584,7 +566,6 @@ const prosesPesan = async (msg) => {
         if (missingField === 'nominal') {
           let nominalValue = parseInt(text.replace(/[^0-9]/g, ''));
           if (nominalValue > 0 && nominalValue < 1000) nominalValue *= 1000;
-
           if (isNaN(nominalValue) || nominalValue === 0) {
             await bot.sendMessage(chatId, `Format angka salah nih. Coba ketik angkanya aja 😅`);
             return;
@@ -614,7 +595,6 @@ const prosesPesan = async (msg) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     let data;
-
     if (msg.photo || isDocumentImage) {
       await bot.sendMessage(chatId, '📸 Gambar diterima! Gemini lagi nge-scan struknya nih...');
       const fileId = msg.photo ? msg.photo[msg.photo.length - 1].file_id : msg.document.file_id;
@@ -624,7 +604,6 @@ const prosesPesan = async (msg) => {
       const arrayBuffer = await response.arrayBuffer();
       const base64Image = Buffer.from(arrayBuffer).toString('base64');
       const mimeType = isDocumentImage ? msg.document.mime_type : 'image/jpeg';
-
       const imageParts = [{ inlineData: { data: base64Image, mimeType } }];
 
       const jenisTransaksi = text ? await deteksiJenisTransaksi(model, text) : 'Pengeluaran';
@@ -660,152 +639,179 @@ const simpanKeSheetsAPI = async (data, targetSheetIndex) => {
 };
 
 // =====================================================================
+// HELPER KHUSUS API CHAT UNTUK VALIDASI DATA (IDENTIK DENGAN BOT TELEGRAM)
+// =====================================================================
+const cekDataKurangApp = async (userId, draftData, targetSheetIndex = 0) => {
+  let missingField = null;
+  let replyMessage = null;
+
+  if (targetSheetIndex === 1) { // Pemasukan
+    if (isKosong(draftData.sumber_pemasukan)) { missingField = "sumber_pemasukan"; replyMessage = "Eh, **sumber pemasukannya** dari mana nih?\nKetik **'x'** buat skip."; }
+    else if (!draftData.nominal || draftData.nominal === 0) { missingField = "nominal"; replyMessage = "Eh, **nominalnya** berapa duit? (Ketik angkanya aja) 💸"; }
+    else if (isKosong(draftData.kategori)) { missingField = "kategori"; replyMessage = "**Kategorinya** apa nih?\nKetik **'x'** buat skip."; }
+  } else { // Pengeluaran
+    if (isKosong(draftData.item)) { missingField = "item"; replyMessage = "Eh, **nama barang/jasanya** belum dapet nih. Tadi beli apa?\nKetik **'x'** buat skip."; }
+    else if (!draftData.nominal || draftData.nominal === 0) { missingField = "nominal"; replyMessage = "Eh, **harganya** belum dapet nih. Berapa duit tadi? 💸"; }
+    else if (isKosong(draftData.kategori)) { missingField = "kategori"; replyMessage = "**Kategorinya** masuk ke mana nih?\nKetik **'x'** buat skip."; }
+    else if (isKosong(draftData.tempat)) { missingField = "tempat"; replyMessage = "**Tempatnya** di mana nih bos?\nKetik **'x'** buat skip."; }
+    else if (isKosong(draftData.tujuan)) { missingField = "tujuan"; replyMessage = "Eh, **tujuannya** belum disebut nih.\nKetik **'x'** buat skip."; }
+    else if (isKosong(draftData.partisipan)) { missingField = "partisipan"; replyMessage = "Perginya sama **siapa** nih?\nKetik **'x'** buat skip."; }
+    else if (isKosong(draftData.metode_bayar)) { missingField = "metode_bayar"; replyMessage = "Bayarnya pakai **metode** apa?\nKetik **'x'** buat skip."; }
+    else if (isKosong(draftData.rating)) { missingField = "rating"; replyMessage = "Terakhir nih, **Rating** berapa?\nKetik **'x'** buat skip."; }
+  }
+
+  if (missingField) {
+    // Simpan ke Supabase Session
+    await setSession(userId, { mode: 'missing_field', draft: draftData, missingField, targetSheetIndex });
+    return { adaYangKurang: true, replyMessage };
+  }
+  return { adaYangKurang: false };
+};
+
+// =====================================================================
 // ENDPOINTS VERCEL
 // =====================================================================
 app.get('/', (req, res) => {
   res.send('Server Bot Keuangan Berjalan di Vercel!');
 });
 
-// PERUBAHAN UTAMA: Endpoint Webhook sekarang akan AWAIT fungsi prosesPesan
 app.post('/api/webhook', async (req, res) => {
   try {
     const msg = req.body.message || req.body.edited_message;
     if (msg) {
-      await prosesPesan(msg); // <--- Vercel dipaksa nunggu ini kelar
+      await prosesPesan(msg);
     }
   } catch (error) {
     console.error("Error Webhook:", error);
   } finally {
-    res.status(200).send('OK'); // <--- Baru boleh matiin server
+    res.status(200).send('OK'); 
   }
 });
 
+// =====================================================================
+// ENDPOINT CHAT API (TERINTEGRASI DENGAN SUPABASE SESSION)
+// =====================================================================
 app.post('/api/chat', async (req, res) => {
   const { text, user_id } = req.body;
   
-  if (!text || !user_id) {
-    return res.status(400).json({ error: 'Text dan user_id wajib diisi' });
-  }
+  if (!text || !user_id) return res.status(400).json({ error: 'Text dan user_id wajib diisi' });
 
   try {
-    // 1. Simpan pesan user ke Supabase
+    // 1. Simpan pesan user ke Supabase Chat History
     await supabase.from('chat_messages').insert([{ user_id, role: 'user', content: text }]);
 
-    // 2. CEK INTENT & EKSTRAK PARAMETER WAKTU
-    const intentPrompt = `
-    Tugasmu mengklasifikasikan niat kalimat user ke dalam 3 kategori:
-    1. "CATAT": Jika user ingin mencatat pengeluaran/pemasukan baru (misal: "makan ayam 20rb", "gajian 5jt").
-    2. "ANALISIS": Jika user bertanya tentang riwayat data, total, hari terboros, saran keuangan, atau rekap (misal: "hari apa gue boros?", "uang gue sisa berapa?", "rekap 2 minggu terakhir").
-    3. "NGOBROL": Jika sekadar sapaan atau obrolan di luar keuangan.
-    
-    Kalimat: "${text}"
-    
-    Jika intent adalah "ANALISIS", deteksi berapa hari ke belakang yang diminta user. Jika user bilang "minggu ini" (berarti 7), "kemarin" (berarti 1), atau "bulan ini" (berarti 30). Jika tidak disebutkan spesifik, default ke 30.
-    
-    Output HANYA dalam format JSON murni TANPA markdown backticks:
-    {
-      "intent": "ANALISIS",
-      "days_ago": 14
-    }
-    `;
-
-    const intentCheck = await groq.chat.completions.create({
-      messages: [{ role: "user", content: intentPrompt }],
-      model: "llama-3.3-70b-versatile",
-      temperature: 0,
-    });
-    
-    // Parsing output JSON dari LLM dengan aman
-    let intentResult = { intent: "NGOBROL", days_ago: 30 };
-    try {
-      const rawOutput = intentCheck.choices[0]?.message?.content.trim();
-      const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-      intentResult = JSON.parse(cleanJson);
-    } catch (e) {
-      console.log("Gagal parsing intent JSON, fallback ke NGOBROL");
-    }
-
-    const intent = intentResult.intent.toUpperCase();
-    const daysAgo = intentResult.days_ago || 30;
     let botReply = "";
+    
+    // 2. CEK SESSION (Logika State Management)
+    const session = await getSession(user_id);
+    
+    if (session && session.mode === 'missing_field') {
+      const { missingField, draft, targetSheetIndex } = session;
 
-    // 3. LOGIKA CATAT TRANSAKSI
-    if (intent.includes("CATAT")) {
-      const jenisTransaksi = await deteksiJenisTransaksiGroq(text);
-      const data = await ekstrakDetailTransaksiGroq(jenisTransaksi, text);
-      const targetSheetIndex = data.jenis_transaksi === 'Pemasukan' ? 1 : 0;
-
-      if (targetSheetIndex === 0 && (!data.nominal || data.nominal === 0)) {
-        botReply = `Wah, harga **${data.item || 'barang'}** nya berapa nih bos? Kasih tau nominalnya sekalian ya biar bisa dicatat. 😅`;
-      } else if (targetSheetIndex === 1 && (!data.nominal || data.nominal === 0)) {
-        botReply = `Alhamdulillah dapet pemasukan, tapi **nominalnya** berapa nih? Kasih tau angkanya dong. 🤑`;
+      if (text.toLowerCase() === 'x') {
+        if (missingField === 'nominal') {
+          botReply = "Waduh, kalau nominal nggak boleh di-skip bos! Ketik angkanya ya 😅";
+        } else {
+          draft[missingField] = null;
+        }
+      } else if (text.toLowerCase() === '/batal' || text.toLowerCase() === 'batal') {
+        await deleteSession(user_id); 
+        botReply = "Oke, proses pencatatan dibatalkan. Ada yang mau dicatat lagi?";
       } else {
-        await simpanKeSheetsAPI(data, targetSheetIndex);
-        botReply = `✅ Sip! **${data.item || data.sumber_pemasukan}** sebesar Rp ${(data.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
+        // Isi data yang kurang
+        if (missingField === 'nominal') {
+          let nominalValue = parseInt(text.replace(/[^0-9]/g, ''));
+          if (nominalValue > 0 && nominalValue < 1000) nominalValue *= 1000;
+          if (isNaN(nominalValue) || nominalValue === 0) {
+            botReply = "Format angka salah nih. Coba ketik angkanya aja 😅";
+          } else {
+            draft[missingField] = nominalValue;
+          }
+        } else {
+          draft[missingField] = text;
+        }
+      }
+
+      // Jika input valid, cek field selanjutnya
+      if (!botReply) {
+        const check = await cekDataKurangApp(user_id, draft, targetSheetIndex);
+        if (check.adaYangKurang) {
+          botReply = check.replyMessage;
+        } else {
+          await simpanKeSheetsAPI(draft, targetSheetIndex); 
+          await deleteSession(user_id);
+          botReply = `✅ Sip! **${draft.item || draft.sumber_pemasukan}** sebesar Rp ${(draft.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
+        }
       }
     } 
-    
-    // 4. LOGIKA TANYA DATA / ANALISIS
-    else if (intent.includes("ANALISIS")) {
-      // Tarik data dengan rentang waktu dinamis sesuai permintaan user!
-      const dataCSV = await tarikDataSheetsUntukAnalisis(daysAgo);
-      
-      const promptSystemAnalisis = {
-        role: "system",
-        content: `Kamu adalah Financial Advisor AI pribadi yang asyik, tajam, dan logis.
-        Berikut adalah data riwayat keuangan user selama ${daysAgo} hari terakhir dalam format CSV:
-        \n${dataCSV}\n
-        Aturan menjawab:
-        1. Analisis data di atas untuk menjawab pertanyaan user secara akurat.
-        2. Jika data kosong, beritahu bahwa belum ada transaksi di rentang waktu tersebut.
-        3. Gunakan bahasa gaul santai (gue/lu).
-        4. Dilarang pakai tabel markdown, gunakan bullet points saja jika perlu me-list sesuatu.`
-      };
-
-      const response = await groq.chat.completions.create({
-        messages: [promptSystemAnalisis, { role: "user", content: text }],
-        model: "openai/gpt-oss-120b", 
-        temperature: 0.2, 
-      });
-
-      botReply = response.choices[0]?.message?.content || "Duh, server lagi pusing baca datanya nih.";
-    } 
-    
-    // 5. LOGIKA NGOBROL BIASA
     else {
-      const { data: history } = await supabase
-        .from('chat_messages')
-        .select('role, content')
-        .eq('user_id', user_id)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      // 3. JIKA TIDAK ADA SESSION (KLASIFIKASI INTENT BARU)
+      const intentPrompt = `Tugasmu mengklasifikasikan niat kalimat user:
+      1. "CATAT": Catat pengeluaran/pemasukan baru.
+      2. "ANALISIS": Tanya riwayat, total, atau rekap.
+      3. "NGOBROL": Sapaan atau obrolan santai.
+      Kalimat: "${text}"
+      Output JSON murni: {"intent": "CATAT", "days_ago": 30}`;
 
-      const formattedHistory = (history || []).reverse().map(msg => ({
-        role: msg.role === 'bot' ? 'assistant' : 'user',
-        content: msg.content
-      }));
-
-      const promptSystem = {
-        role: "system",
-        content: "Kamu adalah asisten AI di aplikasi keuangan Bandha. Jawab dengan santai, suportif, bergaya anak IT/Software Engineer. Dilarang pakai tabel markdown."
-      };
-
-      const response = await groq.chat.completions.create({
-        messages: [promptSystem, ...formattedHistory, { role: "user", content: text }],
+      const intentCheck = await groq.chat.completions.create({
+        messages: [{ role: "user", content: intentPrompt }],
         model: "llama-3.3-70b-versatile",
-        temperature: 0.7,
+        temperature: 0,
       });
 
-      botReply = response.choices[0]?.message?.content || "Gue lagi nge-blank dikit nih.";
+      let intentResult;
+      try {
+        intentResult = JSON.parse(intentCheck.choices[0]?.message?.content.trim().replace(/```json|```/g, ''));
+      } catch (e) { intentResult = { intent: "NGOBROL", days_ago: 30 }; }
+
+      // LOGIKA CATAT
+      if (intentResult.intent === "CATAT") {
+        const jenisTransaksi = await deteksiJenisTransaksiGroq(text); 
+        const data = await ekstrakDetailTransaksiGroq(jenisTransaksi, text); 
+        const targetSheetIndex = data.jenis_transaksi === 'Pemasukan' ? 1 : 0;
+
+        const check = await cekDataKurangApp(user_id, data, targetSheetIndex);
+        if (check.adaYangKurang) {
+          botReply = check.replyMessage;
+        } else {
+          await simpanKeSheetsAPI(data, targetSheetIndex);
+          botReply = `✅ Sip! **${data.item || data.sumber_pemasukan}** sebesar Rp ${(data.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
+        }
+      }
+      // LOGIKA ANALISIS
+      else if (intentResult.intent === "ANALISIS") {
+        const dataCSV = await tarikDataSheetsUntukAnalisis(intentResult.days_ago || 30);
+        const response = await groq.chat.completions.create({
+          messages: [
+            { role: "system", content: `Kamu Financial Advisor Bandha. Data 30 hari: \n${dataCSV}\n Jawab santai ala anak IT.` },
+            { role: "user", content: text }
+          ],
+          model: "openai/gpt-oss-120b",
+          temperature: 0.2,
+        });
+        botReply = response.choices[0]?.message?.content;
+      }
+      // LOGIKA NGOBROL
+      else {
+        const response = await groq.chat.completions.create({
+          messages: [
+            { role: "system", content: "Kamu asisten AI Bandha. Gaya bahasa anak IT/Software Engineer, santai." },
+            { role: "user", content: text }
+          ],
+          model: "llama-3.3-70b-versatile",
+          temperature: 0.7,
+        });
+        botReply = response.choices[0]?.message?.content;
+      }
     }
 
-    // 6. Simpan balasan bot ke Supabase & kembalikan ke Flutter
+    // 4. Simpan balasan bot & Response ke Flutter
     await supabase.from('chat_messages').insert([{ user_id, role: 'bot', content: botReply }]);
     res.status(200).json({ success: true, reply: botReply });
 
   } catch (error) {
     console.error("Error /api/chat:", error);
-    res.status(500).json({ error: 'Server AI sedang sibuk. Coba lagi ya.' });
+    res.status(500).json({ error: 'Server AI sedang sibuk.' });
   }
 });
 
@@ -848,7 +854,7 @@ app.get('/api/analisis', async (req, res) => {
     const requestedDays = parseInt(req.query.days) || 30;
     const dataCSV = await tarikDataSheetsUntukAnalisis(requestedDays);
 
-    // 2. TAHAP 1: Compound AI untuk Analisis Data Akurat
+    // TAHAP 1: Compound AI untuk Analisis Data Akurat
     const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
 Tugasmu sebagai Data Analyst murni:
 1. Hitung total pemasukan dan total pengeluaran.
@@ -865,7 +871,7 @@ Keluarkan output teknis yang murni data dan statistik. Dilarang memberikan opini
     });
     const analisisMentah = analisisResponse.choices[0]?.message?.content;
 
-    // 3. TAHAP 2: GPT-OSS 120B untuk Humanize & Komunikasi
+    // TAHAP 2: GPT-OSS 120B untuk Humanize & Komunikasi
     const promptGptOss = `Kamu adalah asisten penasihat keuangan pribadi.
 Berikan respons dalam bahasa Indonesia yang asyik, tajam, santai, namun sangat suportif. Bicaralah selayaknya mengobrol dengan sesama Software Engineer.
 Gunakan analogi dari dunia programming, backend development, atau deployment arsitektur (misalnya: menyebut pengeluaran bocor sebagai 'memory leak', menabung sebagai 'optimasi database', atau sisa uang tipis sebagai 'resource limit').
@@ -887,16 +893,12 @@ ATURAN FORMATTING KETAT:
 
     const saranFinal = gptOssResponse.choices[0]?.message?.content;
     
-    // 4. Kalkulasi Data Mentah untuk Chart (Javascript murni agar akurat)
+    // Kalkulasi Data Mentah untuk Chart
     const lines = dataCSV.split('\n');
     let totalMasuk = 0;
     let totalKeluar = 0;
     const catMap = {};
-
-    // Penyesuaian deteksi baris: Pemasukan biasanya 4 kolom, Pengeluaran dari Google Sheets yang kamu buat itu ada 9 kolom [cite: 43-47]
-    // Tapi karena fungsi tarikDataSheetsUntukAnalisis hanya me-return 4 kolom (Tanggal, Item/Sumber, Kategori, Nominal) , kita pakai patokan itu.
-    
-    let currentMode = ''; // Untuk mendeteksi lagi di blok mana
+    let currentMode = ''; 
 
     lines.forEach(line => {
         if (line.includes('=== PENGELUARAN ===')) {
@@ -907,12 +909,10 @@ ATURAN FORMATTING KETAT:
             currentMode = 'masuk';
             return;
         }
-        if (line.startsWith('Tanggal,')) return; // Skip header
+        if (line.startsWith('Tanggal,')) return; 
 
         const parts = line.split(',');
-        // Kita butuh minimal 4 data, tapi karena Waktu ada komanya, panjang array pasti >= 5
         if (parts.length >= 4) {
-            // FIX: Selalu ambil index paling akhir untuk Nominal, dan index kedua dari belakang untuk Kategori
             const nominal = parseInt(parts[parts.length - 1]) || 0;
             
             if (currentMode === 'masuk') {
@@ -925,7 +925,7 @@ ATURAN FORMATTING KETAT:
         }
     });
 
-    // 5. Return JSON Lengkap (Teks Analisis + Data Chart) ke Flutter
+    // Return JSON Lengkap (Teks Analisis + Data Chart) ke Flutter
     res.status(200).json({ 
         success: true, 
         analysis: saranFinal, 
@@ -939,59 +939,6 @@ ATURAN FORMATTING KETAT:
   } catch (error) {
     console.error("Error /api/analisis:", error);
     res.status(500).json({ error: 'Gagal melakukan analisis keuangan.' });
-  }
-});
-
-// ENDPOINT BARU KHUSUS UNTUK CHATBOT DI APLIKASI FLUTTER
-app.post('/api/chat', async (req, res) => {
-  const { text, user_id } = req.body;
-  
-  if (!text || !user_id) {
-    return res.status(400).json({ error: 'Text dan user_id wajib diisi' });
-  }
-
-  try {
-    // 1. Simpan pesan user ke Supabase
-    await supabase.from('chat_messages').insert([{ user_id, role: 'user', content: text }]);
-
-    // 2. Ambil riwayat chat (opsional, ambil 5 terakhir untuk konteks)
-    const { data: history } = await supabase
-      .from('chat_messages')
-      .select('role, content')
-      .eq('user_id', user_id)
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    // Format history untuk Groq (Llama/GPT)
-    const formattedHistory = (history || []).reverse().map(msg => ({
-      role: msg.role === 'bot' ? 'assistant' : 'user',
-      content: msg.content
-    }));
-
-    // 3. Panggil AI untuk membalas
-    // (Di sini kita pakai model GPT-OSS atau Llama untuk merespons natural)
-    const promptSystem = {
-      role: "system",
-      content: "Kamu adalah asisten keuangan AI di aplikasi Bandha. Jawab dengan santai, suportif, bergaya anak IT/Software Engineer. Jika user menyebut pengeluaran/pemasukan, beritahu mereka bahwa fitur pencatatan otomatis via chat sedang disiapkan."
-    };
-
-    const response = await groq.chat.completions.create({
-      messages: [promptSystem, ...formattedHistory, { role: "user", content: text }],
-      model: "llama-3.3-70b-versatile",
-      temperature: 0.7,
-    });
-
-    const botReply = response.choices[0]?.message?.content || "Maaf, aku lagi nge-blank.";
-
-    // 4. Simpan balasan bot ke Supabase
-    await supabase.from('chat_messages').insert([{ user_id, role: 'bot', content: botReply }]);
-
-    // 5. Kembalikan ke Flutter
-    res.status(200).json({ success: true, reply: botReply });
-
-  } catch (error) {
-    console.error("Error /api/chat:", error);
-    res.status(500).json({ error: 'Server AI sedang sibuk.' });
   }
 });
 
