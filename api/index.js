@@ -30,16 +30,30 @@ const serviceAccountAuth = new JWT({
 
 const doc = new GoogleSpreadsheet(sheetId, serviceAccountAuth);
 
-// =====================================================================
-// SUPABASE SESSION HELPERS
+/// =====================================================================
+// SUPABASE SESSION HELPERS (VERSI BULLETPROOF)
 // =====================================================================
 const getSession = async (chatId) => {
-  const { data, error } = await supabase.from('user_sessions').select('session_data').eq('chat_id', chatId).single();
-  return data ? data.session_data : null;
+  const { data, error } = await supabase
+    .from('user_sessions')
+    .select('session_data')
+    .eq('chat_id', chatId)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  
+  return data && data.length > 0 ? data[0].session_data : null;
 };
 
 const setSession = async (chatId, sessionData) => {
-  await supabase.from('user_sessions').upsert({ chat_id: chatId, session_data: sessionData, updated_at: new Date() });
+  // 1. Hapus paksa sesi lama (kalau ada) biar nggak numpuk
+  await supabase.from('user_sessions').delete().eq('chat_id', chatId);
+  
+  // 2. Insert sesi baru dengan aman
+  await supabase.from('user_sessions').insert({ 
+    chat_id: chatId, 
+    session_data: sessionData, 
+    updated_at: new Date() 
+  });
 };
 
 const deleteSession = async (chatId) => {
