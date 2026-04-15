@@ -699,10 +699,27 @@ app.post('/api/chat', async (req, res) => {
   try {
     // 1. Simpan pesan user ke Supabase Chat History
     await supabase.from('chat_messages').insert([{ user_id, role: 'user', content: text }]);
+    
+    // 2. Tarik 6 pesan terakhir dari Supabase (Memory)
+    const { data: historyData } = await supabase
+      .from('chat_messages')
+      .select('role, content')
+      .eq('user_id', user_id)
+      .order('created_at', { ascending: false })
+      .limit(6);
+
+    // Format datanya biar cocok sama format Llama/OpenAI
+    let chatHistory = [];
+    if (historyData) {
+      chatHistory = historyData.reverse().map(msg => ({
+        role: msg.role === 'bot' ? 'assistant' : 'user',
+        content: msg.content
+      }));
+    }
 
     let botReply = "";
     
-    // 2. CEK SESSION (Logika State Management)
+    // 3. CEK SESSION (Logika Missing Field / Validasi Data)
     const session = await getSession(user_id);
     
     if (session && session.mode === 'missing_field') {
@@ -745,16 +762,20 @@ app.post('/api/chat', async (req, res) => {
       }
     } 
     else {
-      // 3. JIKA TIDAK ADA SESSION (KLASIFIKASI INTENT BARU)
-      const intentPrompt = `Tugasmu mengklasifikasikan niat kalimat user:
-      1. "CATAT": Catat pengeluaran/pemasukan baru.
-      2. "ANALISIS": Tanya riwayat, total, atau rekap.
-      3. "NGOBROL": Sapaan atau obrolan santai.
-      Kalimat: "${text}"
-      Output JSON murni: {"intent": "CATAT", "days_ago": 30}`;
+      // 4. JIKA TIDAK ADA SESSION (KLASIFIKASI INTENT BARU)
+      const intentPrompt = `Sebagai sistem routing AI, klasifikasikan niat user secara akurat ke dalam JSON:
+1. "CATAT": Jika user menyebutkan aktivitas transaksi (beli, bayar, jajan, gajian) ATAU terdapat nominal uang/angka ATAU user mengkonfirmasi untuk mencatat ("iya catat itu", "masukin aja", "catet").
+2. "ANALISIS": Jika user menanyakan insight, total, sisa uang, laporan, atau pengeluaran masa lalu.
+3. "NGOBROL": HANYA untuk sapaan atau obrolan murni tanpa ada unsur uang/transaksi.
+
+Kalimat: "${text}"
+KEMBALIKAN JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN: {"intent": "CATAT" | "ANALISIS" | "NGOBROL", "days_ago": 30}`;
 
       const intentCheck = await groq.chat.completions.create({
-        messages: [{ role: "user", content: intentPrompt }],
+        messages: [
+          ...chatHistory, // History masuk sini biar AI tahu konteks
+          { role: "user", content: intentPrompt } 
+        ],
         model: "llama-3.3-70b-versatile",
         temperature: 0,
       });
@@ -762,12 +783,17 @@ app.post('/api/chat', async (req, res) => {
       let intentResult;
       try {
         intentResult = JSON.parse(intentCheck.choices[0]?.message?.content.trim().replace(/```json|```/g, ''));
-      } catch (e) { intentResult = { intent: "NGOBROL", days_ago: 30 }; }
+      } catch (e) { 
+        intentResult = { intent: "NGOBROL", days_ago: 30 }; 
+      }
 
-      // LOGIKA CATAT
+      // --- LOGIKA CATAT ---
       if (intentResult.intent === "CATAT") {
-        const jenisTransaksi = await deteksiJenisTransaksiGroq(text); 
-        const data = await ekstrakDetailTransaksiGroq(jenisTransaksi, text); 
+        // Gabungkan history agar saat ekstrak data AI paham konteks "Iya catat itu" merujuk ke transaksi apa
+        const contextForExtraction = chatHistory.map(msg => `${msg.role === 'assistant' ? 'AI' : 'User'}: ${msg.content}`).join('\n') + `\nUser saat ini: ${text}`;
+        
+        const jenisTransaksi = await deteksiJenisTransaksiGroq(contextForExtraction); 
+        const data = await ekstrakDetailTransaksiGroq(jenisTransaksi, contextForExtraction); 
         const targetSheetIndex = data.jenis_transaksi === 'Pemasukan' ? 1 : 0;
 
         const check = await cekDataKurangApp(user_id, data, targetSheetIndex);
@@ -778,7 +804,7 @@ app.post('/api/chat', async (req, res) => {
           botReply = `✅ Sip! **${data.item || data.sumber_pemasukan}** sebesar Rp ${(data.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
         }
       }
-      // LOGIKA ANALISIS
+      
       else if (intentResult.intent === "ANALISIS") {
         const dataCSV = await tarikDataSheetsUntukAnalisis(intentResult.days_ago || 30);
         const response = await groq.chat.completions.create({
@@ -791,13 +817,14 @@ app.post('/api/chat', async (req, res) => {
         });
         botReply = response.choices[0]?.message?.content;
       }
-      // LOGIKA NGOBROL
       else {
+        const messagesToAI = [
+          { role: "system", content: "Kamu asisten AI Bandha. Gaya bahasa anak IT/Software Engineer, santai." },
+          ...chatHistory, // History masuk sini biar obrolan nyambung
+        ];
+
         const response = await groq.chat.completions.create({
-          messages: [
-            { role: "system", content: "Kamu asisten AI Bandha. Gaya bahasa anak IT/Software Engineer, santai." },
-            { role: "user", content: text }
-          ],
+          messages: messagesToAI,
           model: "llama-3.3-70b-versatile",
           temperature: 0.7,
         });
@@ -805,7 +832,7 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // 4. Simpan balasan bot & Response ke Flutter
+    // 5. Simpan balasan bot ke Supabase & Response ke Flutter
     await supabase.from('chat_messages').insert([{ user_id, role: 'bot', content: botReply }]);
     res.status(200).json({ success: true, reply: botReply });
 
