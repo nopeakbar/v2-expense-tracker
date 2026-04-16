@@ -869,6 +869,23 @@ app.post('/api/ekstrak', async (req, res) => {
   }
 });
 
+app.post('/api/scan', async (req, res) => {
+  const { image_base64, mime_type, text } = req.body;
+  if (!image_base64) return res.status(400).json({ error: 'Gambar tidak boleh kosong' });
+
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const imageParts = [{ inlineData: { data: image_base64, mimeType: mime_type || 'image/jpeg' } }];
+    const jenisTransaksi = text ? await deteksiJenisTransaksi(model, text) : 'Pengeluaran';
+    const data = await ekstrakDetailTransaksi(model, jenisTransaksi, text || "", imageParts);
+    
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("Error /api/scan:", error);
+    res.status(500).json({ error: 'Gagal memproses struk via Gemini OCR.' });
+  }
+});
+
 app.post('/api/simpan', async (req, res) => {
   const { data } = req.body;
   if (!data) return res.status(400).json({ error: 'Data tidak boleh kosong' });
