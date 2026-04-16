@@ -156,17 +156,26 @@ const deteksiJenisTransaksi = async (model, text) => {
 };
 
 const ekstrakDetailTransaksi = async (model, jenisTransaksi, text, imageParts = null) => {
-  const prompt = jenisTransaksi === 'Pemasukan' ? promptPemasukan : promptPengeluaran;
-  const fullPrompt = `${prompt}\n\nTeks user: "${text}"`;
+  const basePrompt = jenisTransaksi === 'Pemasukan' ? promptPemasukan : promptPengeluaran;
   
   let result;
   if (imageParts) {
-    const imagePrompt = `${prompt}\n\nTolong ekstrak dari gambar/struk ini.${text ? `\nCatatan user: "${text}"` : ""}`;
+    const imageSpecificRules = `
+ATURAN TAMBAHAN KHUSUS GAMBAR/STRUK:
+1. "item": Simpulkan nama barang dari struk (misal: "Ayam Geprek & Es Teh" atau "Makan Siang"). Jangan masukkan semua detail struk.
+2. "nominal": Cari angka TOTAL atau GRAND TOTAL dari struk. Harus angka murni.
+3. "tempat": Cari NAMA TOKO/MERCHANT (biasanya paling atas atau berlogo besar).
+4. "metode_bayar": Ekstrak dari struk (Cash, QRIS, dll). Jika tidak ada di struk, cek "Catatan user".
+5. "tujuan", "partisipan", "rating": KOSONGKAN (isi dengan null) KECUALI user secara gamblang menyebutkannya di "Catatan user" di bawah ini. DILARANG NGARANG atau memotong kata acak!
+`;
+    const userNote = text && text.trim() !== '' ? `\nCatatan user (Prioritaskan ini untuk isi partisipan/tujuan): "${text}"` : `\nCatatan user: (Tidak ada catatan)`;
+    const imagePrompt = `${basePrompt}\n${imageSpecificRules}\n\nTolong ekstrak dari gambar/struk ini.${userNote}`;
+    
     result = await model.generateContent([imagePrompt, ...imageParts]);
   } else {
+    const fullPrompt = `${basePrompt}\n\nTeks user: "${text}"`;
     result = await model.generateContent(fullPrompt);
   }
-  
   const data = ekstrakJson(result.response.text());
   data.jenis_transaksi = jenisTransaksi;
   return data;
