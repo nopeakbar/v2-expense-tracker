@@ -883,29 +883,30 @@ app.post('/api/scan', async (req, res) => {
   const { image_base64, mime_type, text } = req.body;
   if (!image_base64) return res.status(400).json({ error: 'Gambar tidak boleh kosong' });
 
-  let retries = 3; // Coba maksimal 3 kali
+  let retries = 5; // Kita naikkan jadi 5 kali coba
+  let delay = 2000; // Jeda awal 2 detik
 
   while (retries > 0) {
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
       const imageParts = [{ inlineData: { data: image_base64, mimeType: mime_type || 'image/jpeg' } }];
-      
       const jenisTransaksi = text ? await deteksiJenisTransaksi(model, text) : 'Pengeluaran';
       const data = await ekstrakDetailTransaksi(model, jenisTransaksi, text || "", imageParts);
       
-      // Kalau sukses, langsung balikan data dan hentikan loop
       return res.status(200).json({ success: true, data }); 
       
     } catch (error) {
       if (error.status === 503) {
         retries--;
-        console.log(`Gemini sibuk (503). Sisa percobaan: ${retries}`);
+        console.log(`Gemini sibuk (503). Sisa percobaan: ${retries}, Jeda: ${delay}ms`);
+        
         if (retries === 0) {
           return res.status(503).json({ 
             error: 'Server AI Google sedang penuh nih. Tunggu beberapa saat lalu coba lagi ya! 🚀' 
           });
         }
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.floor(delay * 1.5);
       } else {
         console.error("Error /api/scan:", error);
         return res.status(500).json({ error: 'Gagal memproses struk via Gemini OCR.' });
