@@ -921,19 +921,20 @@ app.post('/api/scan', async (req, res) => {
 app.post('/api/voice', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File audio tidak ditemukan' });
-
-    const filePath = req.file.path;
-
-    // Tembak ke Groq Whisper Large V3
+    const oldPath = req.file.path;
+    const newPath = `${oldPath}.m4a`; 
+    fs.renameSync(oldPath, newPath); 
     const transcription = await groq.audio.transcriptions.create({
-      file: fs.createReadStream(filePath),
-      model: "whisper-large-v3", // Pakai versi reguler/non-turbo
-      prompt: "Transkripsi pencatatan keuangan. Contoh: kopi 25 ribu pakai qris, gajian 5 juta masuk rekening.", // Prompt ini bantu AI nangkep konteks keuangan
+      file: fs.createReadStream(newPath), 
+      model: "whisper-large-v3", 
+      prompt: "Transkripsi pencatatan keuangan. Contoh: kopi 25 ribu pakai qris, gajian 5 juta masuk rekening.", 
       response_format: "json",
-      language: "id" // Kunci di Bahasa Indonesia
+      language: "id" 
     });
-    fs.unlinkSync(filePath);
+
+    fs.unlinkSync(newPath);
     res.status(200).json({ success: true, text: transcription.text });
+    
   } catch (error) {
     console.error("Error Whisper:", error);
     res.status(500).json({ error: 'Gagal memproses suara. Coba lagi.' });
