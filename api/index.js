@@ -6,12 +6,15 @@ import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
+import multer from 'multer';
+import fs from 'fs';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
+const upload = multer({ dest: '/tmp/' });
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -912,6 +915,28 @@ app.post('/api/scan', async (req, res) => {
         return res.status(500).json({ error: 'Gagal memproses struk via Gemini OCR.' });
       }
     }
+  }
+});
+
+app.post('/api/voice', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'File audio tidak ditemukan' });
+
+    const filePath = req.file.path;
+
+    // Tembak ke Groq Whisper Large V3
+    const transcription = await groq.audio.transcriptions.create({
+      file: fs.createReadStream(filePath),
+      model: "whisper-large-v3", // Pakai versi reguler/non-turbo
+      prompt: "Transkripsi pencatatan keuangan. Contoh: kopi 25 ribu pakai qris, gajian 5 juta masuk rekening.", // Prompt ini bantu AI nangkep konteks keuangan
+      response_format: "json",
+      language: "id" // Kunci di Bahasa Indonesia
+    });
+    fs.unlinkSync(filePath);
+    res.status(200).json({ success: true, text: transcription.text });
+  } catch (error) {
+    console.error("Error Whisper:", error);
+    res.status(500).json({ error: 'Gagal memproses suara. Coba lagi.' });
   }
 });
 
