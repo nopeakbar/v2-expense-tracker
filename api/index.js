@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import TelegramBot from 'node-telegram-bot-api';
 import express from 'express';
+import cors from 'cors'
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
@@ -14,6 +15,7 @@ const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
+app.use(cors());
 const upload = multer({ dest: '/tmp/' });
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
