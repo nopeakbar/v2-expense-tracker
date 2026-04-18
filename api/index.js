@@ -1076,4 +1076,30 @@ ATURAN FORMATTING KETAT:
   }
 });
 
+app.get('/api/chat/history', async (req, res) => {
+  const userId = req.query.user_id;
+  
+  if (!userId) {
+    return res.status(400).json({ error: 'user_id wajib ada bos!' });
+  }
+
+  try {
+    // Tarik 50 chat terakhir dari Supabase, diurutkan dari yang terbaru
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('role, content')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+
+    // Supabase balikin array kosong kalau belum ada chat, itu aman
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error("Error /api/chat/history:", error);
+    res.status(500).json({ error: 'Gagal narik history chat dari Supabase.' });
+  }
+});
+
 export default app;
