@@ -17,7 +17,16 @@ const app = express();
 const upload = multer({ dest: '/tmp/' });
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
+const APP_SECRET = process.env.BANDHA_API_KEY || 'rahasia-sementara-kalo-env-lupa';
+app.use('/api', (req, res, next) => {
+  if (req.path === '/webhook') return next();
+  const clientApiKey = req.headers['x-bandha-key'];
+  if (!clientApiKey || clientApiKey !== APP_SECRET) {
+    console.warn(`[AUTH FAILED] Ada yang nyoba nembak endpoint: ${req.path}`);
+    return res.status(401).json({ error: 'Unauthorized: Akses ditolak bos! 🛑' });
+  }
+  next(); 
+});
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const sheetId = process.env.SPREADSHEET_ID;
