@@ -977,10 +977,57 @@ app.post('/api/simpan', async (req, res) => {
 
 app.get('/api/analisis', async (req, res) => {
   try {
-
     const requestedDays = parseInt(req.query.days) || 30;
+    // BACA PARAMETER BARU: Apakah request ini butuh AI atau cuma butuh angka?
+    const noAi = req.query.no_ai === 'true'; 
+    
     const dataCSV = await tarikDataSheetsUntukAnalisis(requestedDays);
 
+    // =========================================================
+    // 1. PINDAHKAN KALKULASI MATEMATIKA KE ATAS (SEBELUM AI)
+    // =========================================================
+    const lines = dataCSV.split('\n');
+    let totalMasuk = 0;
+    let totalKeluar = 0;
+    const catMap = {};
+    let currentMode = ''; 
+
+    lines.forEach(line => {
+        if (line.includes('=== PENGELUARAN ===')) { currentMode = 'keluar'; return; }
+        if (line.includes('=== PEMASUKAN ===')) { currentMode = 'masuk'; return; }
+        if (line.startsWith('Tanggal,')) return; 
+
+        const parts = line.split(',');
+        if (parts.length >= 4) {
+            const nominal = parseInt(parts[parts.length - 1]) || 0;
+            
+            if (currentMode === 'masuk') {
+                totalMasuk += nominal;
+            } else if (currentMode === 'keluar') {
+                totalKeluar += nominal;
+                const cat = parts[parts.length - 2] || 'Lainnya'; 
+                catMap[cat] = (catMap[cat] || 0) + nominal;
+            }
+        }
+    });
+
+    const chartData = {
+        totalPemasukan: totalMasuk,
+        totalPengeluaran: totalKeluar,
+        categories: Object.entries(catMap).map(([name, value]) => ({ name, value }))
+    };
+
+    // =========================================================
+    // 2. BYPASS AI JIKA HANYA BUTUH CHART (UNTUK HOME SCREEN)
+    // =========================================================
+    if (noAi) {
+        // Langsung return angka tanpa ngebakar token Groq!
+        return res.status(200).json({ success: true, analysis: "", chartData });
+    }
+
+    // =========================================================
+    // 3. PROSES AI (HANYA JALAN UNTUK HALAMAN ANALISIS)
+    // =========================================================
     // TAHAP 1: Compound AI untuk Analisis Data Akurat
     const promptCompound = `Berikut adalah data riwayat keuangan format CSV.
 Tugasmu sebagai Data Analyst murni:
@@ -1020,48 +1067,8 @@ ATURAN FORMATTING KETAT:
 
     const saranFinal = gptOssResponse.choices[0]?.message?.content;
     
-    // Kalkulasi Data Mentah untuk Chart
-    const lines = dataCSV.split('\n');
-    let totalMasuk = 0;
-    let totalKeluar = 0;
-    const catMap = {};
-    let currentMode = ''; 
-
-    lines.forEach(line => {
-        if (line.includes('=== PENGELUARAN ===')) {
-            currentMode = 'keluar';
-            return;
-        }
-        if (line.includes('=== PEMASUKAN ===')) {
-            currentMode = 'masuk';
-            return;
-        }
-        if (line.startsWith('Tanggal,')) return; 
-
-        const parts = line.split(',');
-        if (parts.length >= 4) {
-            const nominal = parseInt(parts[parts.length - 1]) || 0;
-            
-            if (currentMode === 'masuk') {
-                totalMasuk += nominal;
-            } else if (currentMode === 'keluar') {
-                totalKeluar += nominal;
-                const cat = parts[parts.length - 2] || 'Lainnya'; 
-                catMap[cat] = (catMap[cat] || 0) + nominal;
-            }
-        }
-    });
-
-    // Return JSON Lengkap (Teks Analisis + Data Chart) ke Flutter
-    res.status(200).json({ 
-        success: true, 
-        analysis: saranFinal, 
-        chartData: {
-            totalPemasukan: totalMasuk,
-            totalPengeluaran: totalKeluar,
-            categories: Object.entries(catMap).map(([name, value]) => ({ name, value }))
-        }
-    });
+    // Return JSON Lengkap (Teks Analisis + Data Chart)
+    res.status(200).json({ success: true, analysis: saranFinal, chartData });
 
   } catch (error) {
     console.error("Error /api/analisis:", error);
