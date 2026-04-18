@@ -46,8 +46,16 @@ const serviceAccountAuth = new JWT({
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
-const doc = new GoogleSpreadsheet(sheetId, serviceAccountAuth);
-
+const docPersonal = new GoogleSpreadsheet(sheetId, serviceAccountAuth);
+const sheetIdDemo = process.env.SPREADSHEET_ID_DEMO;
+const docDemo = sheetIdDemo ? new GoogleSpreadsheet(sheetIdDemo, serviceAccountAuth) : docPersonal;
+const getActiveDoc = (req) => {
+  if (req && req.headers && req.headers['x-app-mode'] === 'demo') {
+    return docDemo;
+  }
+  return docPersonal;
+};
+const doc = docPersonal; 
 /// =====================================================================
 // SUPABASE SESSION HELPERS (VERSI BULLETPROOF)
 // =====================================================================
@@ -362,13 +370,11 @@ const cekDataKurang = async (chatId, draftData, action = 'create', targetSheetIn
   }
 };
 
-// =====================================================================
-// FITUR ANALISIS (Compound + GPT-OSS 120B)
-// =====================================================================
-const tarikDataSheetsUntukAnalisis = async (days = 3650) => {
-  await doc.loadInfo();
-  const sheetPengeluaran = doc.sheetsByIndex[0];
-  const sheetPemasukan = doc.sheetsByIndex[1];
+const tarikDataSheetsUntukAnalisis = async (req, days = 3650) => { // <-- Tambah param req
+  const activeDoc = getActiveDoc(req); // <-- Gunakan helper
+  await activeDoc.loadInfo();
+  const sheetPengeluaran = activeDoc.sheetsByIndex[0];
+  const sheetPemasukan = activeDoc.sheetsByIndex[1];
 
   const allRowsKeluar = await sheetPengeluaran.getRows();
   const rowsKeluar = allRowsKeluar.slice(-200);
@@ -667,10 +673,11 @@ const prosesPesan = async (msg) => {
   }
 };
 
-const simpanKeSheetsAPI = async (data, targetSheetIndex) => {
-  await doc.loadInfo();
+const simpanKeSheetsAPI = async (req, data, targetSheetIndex) => { // <-- Tambah param req
+  const activeDoc = getActiveDoc(req); 
+  await activeDoc.loadInfo();
   const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-  const sheet = doc.sheetsByIndex[targetSheetIndex];
+  const sheet = activeDoc.sheetsByIndex[targetSheetIndex];
 
   if (targetSheetIndex === 1) {
     await sheet.addRow([timestamp, formatTeks(data.sumber_pemasukan), data.nominal || 0, formatTeks(data.kategori), formatTeks(data.catatan)]);
@@ -729,9 +736,6 @@ app.post('/api/webhook', async (req, res) => {
   }
 });
 
-// =====================================================================
-// ENDPOINT CHAT API (TERINTEGRASI DENGAN SUPABASE SESSION)
-// =====================================================================
 app.post('/api/chat', async (req, res) => {
   const { text, user_id } = req.body;
   
@@ -748,8 +752,6 @@ app.post('/api/chat', async (req, res) => {
       .eq('user_id', user_id)
       .order('created_at', { ascending: false })
       .limit(6);
-
-    // Format datanya biar cocok sama format Llama/OpenAI
     let chatHistory = [];
     if (historyData) {
       chatHistory = historyData.reverse().map(msg => ({
@@ -759,8 +761,6 @@ app.post('/api/chat', async (req, res) => {
     }
 
     let botReply = "";
-    
-    // 3. CEK SESSION (Logika Missing Field / Validasi Data)
     const session = await getSession(user_id);
     
     if (session && session.mode === 'missing_field') {
@@ -789,14 +789,12 @@ app.post('/api/chat', async (req, res) => {
           draft[missingField] = text;
         }
       }
-
-      // Jika input valid, cek field selanjutnya
       if (!botReply) {
         const check = await cekDataKurangApp(user_id, draft, targetSheetIndex);
         if (check.adaYangKurang) {
           botReply = check.replyMessage;
         } else {
-          await simpanKeSheetsAPI(draft, targetSheetIndex); 
+          await simpanKeSheetsAPI(req, draft, targetSheetIndex); 
           await deleteSession(user_id);
           botReply = `✅ Sip! **${draft.item || draft.sumber_pemasukan}** sebesar Rp ${(draft.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
         }
@@ -841,13 +839,13 @@ KEMBALIKAN JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN: {"intent": "CATAT" | "ANALI
         if (check.adaYangKurang) {
           botReply = check.replyMessage;
         } else {
-          await simpanKeSheetsAPI(data, targetSheetIndex);
+          await simpanKeSheetsAPI(req, data, targetSheetIndex);
           botReply = `✅ Sip! **${data.item || data.sumber_pemasukan}** sebesar Rp ${(data.nominal || 0).toLocaleString('id-ID')} udah masuk database Bandha. Ada lagi? 💸`;
         }
       }
       
       else if (intentResult.intent === "ANALISIS") {
-        const dataCSV = await tarikDataSheetsUntukAnalisis(intentResult.days_ago || 30);
+        const dataCSV = await tarikDataSheetsUntukAnalisis(req, intentResult.days_ago || 30);
         const response = await groq.chat.completions.create({
           messages: [
             { role: "system", content: `Kamu Financial Advisor Bandha. Data 30 hari: \n${dataCSV}\n Jawab santai ala anak IT.` },
@@ -967,7 +965,7 @@ app.post('/api/simpan', async (req, res) => {
       if (isKosong(data.item)) return res.status(400).json({ error: 'Nama item belum diisi.' });
       if (!data.nominal || data.nominal === 0) return res.status(400).json({ error: 'Nominal belum diisi.' });
     }
-    await simpanKeSheetsAPI(data, targetSheetIndex);
+    await simpanKeSheetsAPI(req, data, targetSheetIndex);
     res.status(200).json({ success: true, message: `✅ ${data.jenis_transaksi} berhasil dicatat ke Sheets!` });
   } catch (error) {
     console.error("Error /api/simpan:", error);
@@ -981,7 +979,7 @@ app.get('/api/analisis', async (req, res) => {
     // BACA PARAMETER BARU: Apakah request ini butuh AI atau cuma butuh angka?
     const noAi = req.query.no_ai === 'true'; 
     
-    const dataCSV = await tarikDataSheetsUntukAnalisis(requestedDays);
+    const dataCSV = await tarikDataSheetsUntukAnalisis(req, requestedDays);
 
     // =========================================================
     // 1. PINDAHKAN KALKULASI MATEMATIKA KE ATAS (SEBELUM AI)
