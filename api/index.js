@@ -18,6 +18,7 @@ const upload = multer({ dest: '/tmp/' });
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const APP_SECRET = process.env.BANDHA_API_KEY; 
+const DEMO_SECRET = process.env.BANDHA_DEMO_KEY;
 
 app.use('/api', (req, res, next) => {
   if (req.path === '/webhook') return next();
@@ -26,7 +27,7 @@ app.use('/api', (req, res, next) => {
     return res.status(500).json({ error: 'Server misconfigured. Akses ditutup sementara.' });
   }
   const clientApiKey = req.headers['x-bandha-key'];
-  if (!clientApiKey || clientApiKey !== APP_SECRET) {
+  if (!clientApiKey || (clientApiKey !== APP_SECRET && clientApiKey !== DEMO_SECRET)) {
     console.warn(`[AUTH FAILED] Ada yang nyoba nembak endpoint: ${req.path}`);
     return res.status(401).json({ error: 'Unauthorized: Akses ditolak bos! 🛑' });
   }
